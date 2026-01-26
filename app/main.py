@@ -5,6 +5,9 @@ from fastapi import FastAPI, Request, Form, HTTPException, status
 from fastapi.responses import RedirectResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+import base64
+from datetime import datetime, timezone
+import re
 
 from .env_settings import get_env
 from .db import engine
@@ -17,13 +20,171 @@ from .services import (
     audit_login, local_authenticate, ad_authenticate, save_settings,
     ad_test_and_load_groups, get_groups_cache, groups_dn_to_name_map
 )
+from .services import ad_cfg_from_settings
 from .ad_utils import split_group_dns
+from .ldap_client import ADClient
 
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="AD Portal")
 templates = Jinja2Templates(directory="app/templates")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
+
+
+def _dn_to_id(dn: str) -> str:
+    """URL-safe identifier for a DN (used for HTML ids and query params)."""
+    b = base64.urlsafe_b64encode((dn or "").encode("utf-8")).decode("ascii")
+    return b.rstrip("=")
+
+
+def _id_to_dn(s: str) -> str:
+    s = (s or "").strip()
+    if not s:
+        raise ValueError("empty")
+    pad = "=" * (-len(s) % 4)
+    raw = base64.urlsafe_b64decode((s + pad).encode("ascii"))
+    return raw.decode("utf-8", errors="replace")
+
+
+def _dn_first_component_value(dn: str) -> str:
+    """Return first RDN value from a DN (e.g. CN=USB-Deny,OU=... -> USB-Deny)."""
+    s = (dn or "").strip()
+    if not s:
+        return ""
+
+    # Extract first RDN (handle escaped commas)
+    first = []
+    esc = False
+    for ch in s:
+        if esc:
+            first.append(ch)
+            esc = False
+            continue
+        if ch == "\\":
+            esc = True
+            continue
+        if ch == ",":
+            break
+        first.append(ch)
+    rdn = "".join(first).strip()
+
+    if "=" in rdn:
+        _, val = rdn.split("=", 1)
+        val = val.strip()
+    else:
+        val = rdn
+
+    # Unescape common DN escapes
+    val = val.replace("\\,", ",").replace("\\+", "+").replace("\\=", "=").replace('\\"', '"')
+    return val.strip()
+
+
+def _fmt_dt_human(v: str) -> str:
+    """Human-friendly datetime: DD.MM.YYYY HH:MM:SS (best-effort).
+
+    Supports ISO-8601 and AD GeneralizedTime (YYYYmmddHHMMSS(.fff)Z).
+    """
+    s = (v or "").strip()
+    if not s:
+        return ""
+
+    # AD GeneralizedTime: 20260126042000.0Z or 20260126042000Z
+    m = re.match(r"^(\d{14})(?:\.(\d+))?Z$", s)
+    if m:
+        try:
+            dt = datetime.strptime(m.group(1), "%Y%m%d%H%M%S")
+            return dt.strftime("%d.%m.%Y %H:%M:%S")
+        except Exception:
+            pass
+
+    try:
+        s2 = s.replace("Z", "+00:00")
+        dt = datetime.fromisoformat(s2)
+        if dt.tzinfo is not None:
+            dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+        return dt.strftime("%d.%m.%Y %H:%M:%S")
+    except Exception:
+        return s
+
+
+# Оставляем только поля, которые нужны в «Подробнее»
+_DETAIL_LABELS: dict[str, str] = {
+    "department": "Отдел",
+    "memberOf": "Группы",
+    "whenCreated": "Создан",
+    "whenChanged": "Изменён",
+    "lastLogonTimestamp": "Последний вход (timestamp)",
+    "pwdLastSet": "Пароль обновлён",
+    "distinguishedName": "Путь",
+    "otherPager": "ПИН код",
+}
+
+
+def _build_detail_items(details: dict) -> list[dict]:
+    order = [
+        "department",
+        "memberOf",
+        "whenCreated",
+        "whenChanged",
+        "lastLogonTimestamp",
+        "pwdLastSet",
+        "distinguishedName",
+        "otherPager",
+    ]
+
+    items: list[dict] = []
+
+    # Special rule: show PIN code even if empty
+    has_other_pager = "otherPager" in details
+
+    for k in order:
+        label = _DETAIL_LABELS.get(k, k)
+
+        if k not in details:
+            if k == "otherPager" and not has_other_pager:
+                items.append({"key": k, "label": label, "value": "—", "is_list": False})
+            continue
+
+        v = details.get(k)
+
+        # Groups: show short names only (CN/first RDN value) as badges
+        if k == "memberOf":
+            vals = v if isinstance(v, list) else [v]
+            names = []
+            for gdn in vals:
+                n = _dn_first_component_value(str(gdn))
+                if n:
+                    names.append(n)
+            names = sorted(set(names), key=lambda x: x.lower())
+            if not names:
+                continue
+            items.append({"key": k, "label": label, "value": names, "is_list": True, "is_badges": True})
+            continue
+
+        # Human-friendly date/time
+        if k in {"whenCreated", "whenChanged", "lastLogonTimestamp", "pwdLastSet"}:
+            s = str(v).strip()
+            if not s:
+                continue
+            items.append({"key": k, "label": label, "value": _fmt_dt_human(s), "is_list": False})
+            continue
+
+        if isinstance(v, list):
+            vv = [str(x).strip() for x in v if str(x).strip()]
+            if not vv:
+                if k == "otherPager":
+                    items.append({"key": k, "label": label, "value": "—", "is_list": False})
+                continue
+            items.append({"key": k, "label": label, "value": vv, "is_list": True})
+        else:
+            s = str(v).strip()
+            if not s:
+                if k == "otherPager":
+                    items.append({"key": k, "label": label, "value": "—", "is_list": False})
+                continue
+            items.append({"key": k, "label": label, "value": s, "is_list": False})
+
+    return items
 
 
 @app.on_event("startup")
@@ -106,7 +267,13 @@ def login_ad(request: Request, username: str = Form(...), password: str = Form(.
                 {"request": request, "auth_mode": st.auth_mode, "error_local": "", "error_ad": msg},
             )
 
-        payload = {"u": res["username"], "dn": res["display_name"], "auth": "ad", "settings": res["settings"], "groups": res["groups"]}
+        payload = {
+            "u": res["username"],
+            "dn": res.get("display_name", ""),
+            "auth": "ad",
+            "settings": bool(res.get("settings", False)),
+            "groups": res.get("groups", []),
+        }
         resp = RedirectResponse(url="/", status_code=303)
         _set_session_cookie(resp, payload)
         audit_login(db, res["username"], "ad", True, ip, ua, "ok", "")
@@ -122,22 +289,16 @@ def logout():
 
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request):
-    try:
-        user = get_current_user(request)
-    except HTTPException as e:
-        if e.status_code == status.HTTP_401_UNAUTHORIZED:
-            return RedirectResponse(url="/login", status_code=303)
-        raise
+    user = get_current_user(request)
     return templates.TemplateResponse("index.html", {"request": request, "user": user})
 
 
 @app.get("/settings", response_class=HTMLResponse)
-def settings_page(request: Request):
+def settings_page(request: Request, saved: int = 0):
     user = require_settings_access(request)
-    saved = request.query_params.get("saved") == "1"
-
     with db_session() as db:
         st = get_or_create_settings(db)
+
         groups_cache = get_groups_cache(st)
 
         class G:
@@ -259,3 +420,94 @@ def settings_ad_test(
             ''',
             status_code=200,
         )
+
+
+@app.get("/users/search", response_class=HTMLResponse)
+def users_search(request: Request, q: str = ""):
+    # Require an active session; for htmx requests redirect via HX-Redirect.
+    try:
+        _ = get_current_user(request)
+    except HTTPException as e:
+        if e.status_code == status.HTTP_401_UNAUTHORIZED:
+            return HTMLResponse(content="", status_code=401, headers={"HX-Redirect": "/login"})
+        raise
+
+    q = (q or "").strip()
+    if len(q) < 2:
+        return templates.TemplateResponse(
+            "users_results.html",
+            {"request": request, "users": [], "error": "Введите минимум 2 символа для поиска."},
+        )
+
+    with db_session() as db:
+        st = get_or_create_settings(db)
+        cfg = ad_cfg_from_settings(st)
+        if not cfg:
+            return templates.TemplateResponse(
+                "users_results.html",
+                {"request": request, "users": [], "error": "AD не настроен. Откройте «Настройки» и заполните параметры подключения."},
+            )
+
+    client = ADClient(cfg)
+    ok, msg, items = client.search_users(q, limit=40)
+    if not ok:
+        return templates.TemplateResponse(
+            "users_results.html",
+            {"request": request, "users": [], "error": msg or "Ошибка поиска в AD."},
+        )
+
+    users = []
+    for it in items:
+        dn = it.get("dn", "")
+        users.append({
+            "id": _dn_to_id(dn),
+            "fio": it.get("fio", "") or "",
+            "login": it.get("login", "") or "",
+            "email": it.get("mail", "") or "",
+        })
+
+    return templates.TemplateResponse(
+        "users_results.html",
+        {"request": request, "users": users, "error": ""},
+    )
+
+
+@app.get("/users/details", response_class=HTMLResponse)
+def user_details(request: Request, id: str = ""):
+    try:
+        _ = get_current_user(request)
+    except HTTPException as e:
+        if e.status_code == status.HTTP_401_UNAUTHORIZED:
+            return HTMLResponse(content="", status_code=401, headers={"HX-Redirect": "/login"})
+        raise
+
+    try:
+        dn = _id_to_dn(id)
+    except Exception:
+        return templates.TemplateResponse(
+            "user_details.html",
+            {"request": request, "items": [], "error": "Некорректный идентификатор пользователя."},
+        )
+
+    with db_session() as db:
+        st = get_or_create_settings(db)
+        cfg = ad_cfg_from_settings(st)
+        if not cfg:
+            return templates.TemplateResponse(
+                "user_details.html",
+                {"request": request, "items": [], "error": "AD не настроен."},
+            )
+
+    client = ADClient(cfg)
+    ok, msg, details = client.get_user_details(dn)
+    if not ok:
+        return templates.TemplateResponse(
+            "user_details.html",
+            {"request": request, "items": [], "error": msg or "Не удалось получить данные из AD."},
+        )
+
+    items = _build_detail_items(details)
+    return templates.TemplateResponse(
+        "user_details.html",
+        {"request": request, "items": items, "error": ""},
+    )

@@ -56,6 +56,11 @@ def _ad_cfg_from_settings(st: AppSettings) -> ADConfig | None:
     )
 
 
+def ad_cfg_from_settings(st: AppSettings) -> ADConfig | None:
+    """Public wrapper to build ADConfig from current settings."""
+    return _ad_cfg_from_settings(st)
+
+
 def ad_test_and_load_groups(db: Session, st: AppSettings, override: dict | None = None) -> tuple[bool, str, list[dict]]:
     def pick(name, default):
         return override.get(name, default) if override else default
@@ -102,61 +107,77 @@ def ad_test_and_load_groups(db: Session, st: AppSettings, override: dict | None 
     st.last_ad_test_ok = True
     st.last_ad_test_message = "OK"
     st.last_ad_test_ts = datetime.utcnow()
+
+    # Also write the tested connection settings back when override is provided
+    if override:
+        st.ad_dc_short = dc_short
+        st.ad_domain = domain
+        st.ad_port = port
+        st.ad_use_ssl = use_ssl
+        st.ad_starttls = starttls
+        st.ad_bind_username = bind_user
+        st.ad_bind_password_enc = encrypt_str(bind_pw)
+
     db.commit()
-
-    msg = f"OK. Найдено групп: {len(groups)}. Хост: {cfg.host}. BaseDN: {cfg.base_dn}. Bind: {cfg.bind_principal}."
-    return True, msg, groups
+    return True, "OK", groups
 
 
-def ad_authenticate(db: Session, st: AppSettings, login: str, password: str) -> tuple[dict | None, str]:
+def ad_authenticate(db: Session, st: AppSettings, username: str, password: str) -> tuple[dict | None, str]:
     cfg = _ad_cfg_from_settings(st)
     if not cfg:
-        return None, "AD не настроен."
+        return None, "AD не настроен (проверьте настройки)."
 
     client = ADClient(cfg)
-    user = client.find_user_by_login(login)
-    if not user:
-        return None, "Неверный логин или пароль."
-    if not client.verify_password(user.dn, password):
+    u = client.find_user_by_login(username)
+    if not u:
         return None, "Неверный логин или пароль."
 
-    app_allowed = set(split_group_dns(st.allowed_app_group_dns))
-    settings_allowed = set(split_group_dns(st.allowed_settings_group_dns))
-    user_groups = set(user.member_of)
+    if not client.verify_password(u.dn, password):
+        return None, "Неверный логин или пароль."
 
-    if not app_allowed:
-        return None, "Доступ запрещён: не настроены группы допуска в приложение."
-    if not (user_groups & app_allowed):
-        return None, "Доступ запрещён: недостаточно прав (группы приложения)."
+    allowed_app = set(split_group_dns(st.allowed_app_group_dns))
+    allowed_settings = set(split_group_dns(st.allowed_settings_group_dns))
 
-    settings_access = bool(user_groups & settings_allowed) if settings_allowed else False
+    user_groups = set(u.member_of)
+
+    # If allowed groups are configured, require intersection
+    if allowed_app and not (user_groups & allowed_app):
+        return None, "Доступ запрещён: пользователь не входит в разрешённые группы."
+
+    can_settings = bool(user_groups & allowed_settings) if allowed_settings else False
 
     return {
-        "username": user.sam or login,
-        "display_name": user.display_name or (user.sam or login),
+        "username": u.sam or username,
+        "display_name": u.display_name or u.sam or username,
         "auth": "ad",
-        "settings": settings_access,
-        "groups": list(user_groups),
+        "settings": can_settings,
+        "groups": list(u.member_of),
     }, "OK"
 
 
 def save_settings(db: Session, st: AppSettings, form: dict) -> None:
-    st.auth_mode = form.get("auth_mode", st.auth_mode)
+    st.auth_mode = (form.get("auth_mode") or "local").strip()
 
-    st.ad_dc_short = (form.get("ad_dc_short", "") or "").strip()
-    st.ad_domain = (form.get("ad_domain", "") or "").strip().strip(".")
-    st.ad_bind_username = (form.get("ad_bind_username", "") or "").strip()
+    # AD connection
+    st.ad_dc_short = (form.get("ad_dc_short") or "").strip()
+    st.ad_domain = (form.get("ad_domain") or "").strip()
 
-    mode = form.get("ad_conn_mode", "ldaps")
+    mode = (form.get("ad_conn_mode") or "ldaps").strip()
     if mode == "ldaps":
-        st.ad_port, st.ad_use_ssl, st.ad_starttls = 636, True, False
+        st.ad_port = 636
+        st.ad_use_ssl = True
+        st.ad_starttls = False
     else:
-        st.ad_port, st.ad_use_ssl, st.ad_starttls = 389, False, True
+        st.ad_port = 389
+        st.ad_use_ssl = False
+        st.ad_starttls = True
 
-    pwd = (form.get("ad_bind_password", "") or "").strip()
-    if pwd:
-        st.ad_bind_password_enc = encrypt_str(pwd)
+    st.ad_bind_username = (form.get("ad_bind_username") or "").strip()
+    pw = form.get("ad_bind_password") or ""
+    if pw:
+        st.ad_bind_password_enc = encrypt_str(pw)
 
+    # Access groups
     st.allowed_app_group_dns = ";".join(form.get("allowed_app_group_dns", []))
     st.allowed_settings_group_dns = ";".join(form.get("allowed_settings_group_dns", []))
 

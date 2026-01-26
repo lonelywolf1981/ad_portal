@@ -1,0 +1,36 @@
+{% if error %}
+  <div class="text-danger small">{{ error }}</div>
+{% else %}
+  {% if not items %}
+    <div class="text-secondary small">Нет данных для отображения.</div>
+  {% else %}
+    <div class="table-responsive">
+      <table class="table table-sm mb-0 align-middle">
+        <tbody>
+        {% for it in items %}
+          <tr>
+            <th class="text-secondary" style="white-space: nowrap; width: 1%;">{{ it.label }}</th>
+            <td>
+              {% if it.get("is_badges") %}
+                <div class="group-badges">
+                  {% for v in it.value %}
+                    <span class="badge text-bg-secondary badge-group">{{ v }}</span>
+                  {% endfor %}
+                </div>
+              {% elif it.is_list %}
+                <ul class="mb-0 small">
+                  {% for v in it.value %}
+                    <li>{{ v }}</li>
+                  {% endfor %}
+                </ul>
+              {% else %}
+                <span class="small">{{ it.value }}</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+{% endif %}

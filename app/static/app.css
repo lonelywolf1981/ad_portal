@@ -1,1 +1,9 @@
 .badge-tag { margin-right: 0.25rem; margin-bottom: 0.25rem; }
+
+/* htmx loading indicators */
+.htmx-indicator { display: none; }
+.htmx-request .htmx-indicator { display: inline-block; }
+
+/* group badges in "Подробнее" */
+.group-badges { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.badge-group { font-weight: 500; }

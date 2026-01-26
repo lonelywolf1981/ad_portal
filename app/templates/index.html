@@ -2,9 +2,9 @@
 {% block content %}
   <div class="card shadow-sm">
     <div class="card-body">
-      <h1 class="h5 mb-2">Вы вошли</h1>
+      <h1 class="h6 mb-2">Сеанс</h1>
 
-      <div class="row">
+      <div class="row small">
         <div class="col-md-6">
           <div class="text-secondary">Пользователь: <strong>{{ user["u"] }}</strong></div>
           <div class="text-secondary">Тип: <strong>{{ user["auth"] }}</strong></div>
@@ -14,16 +14,44 @@
           <div class="text-secondary">Отображаемое имя: <strong>{{ user.get("dn","") }}</strong></div>
         </div>
       </div>
+    </div>
+  </div>
 
-      {% if user.get("auth") == "ad" %}
-        <hr>
-        <div class="small text-secondary mb-2">Группы (memberOf, DN) — первые 20:</div>
-        <ul class="small mb-0">
-          {% for g in user.get("groups", [])[:20] %}
-            <li>{{ g }}</li>
-          {% endfor %}
-        </ul>
-      {% endif %}
+  <div class="card shadow-sm mt-3">
+    <div class="card-body">
+      <h2 class="h6 mb-3">Поиск пользователей в AD</h2>
+
+      <form
+        class="row g-2 align-items-center"
+        hx-get="/users/search"
+        hx-target="#user-results"
+        hx-swap="innerHTML"
+      >
+        <div class="col-md-8">
+          <input
+            type="text"
+            class="form-control"
+            name="q"
+            placeholder="Имя, фамилия или логин (часть)"
+            autocomplete="off"
+          >
+        </div>
+        <div class="col-md-2 d-grid">
+          <button class="btn btn-primary" type="submit">Найти</button>
+        </div>
+        <div class="col-md-2">
+          <div class="d-flex align-items-center gap-2">
+            <div class="spinner-border spinner-border-sm text-secondary htmx-indicator" role="status" aria-hidden="true"></div>
+            <div class="small text-secondary htmx-indicator">Поиск...</div>
+          </div>
+        </div>
+      </form>
+
+      <div class="small text-secondary mt-2">
+        Поиск выполняется по части имени, фамилии или логина. В «Подробнее» пустые поля не отображаются.
+      </div>
+
+      <div id="user-results" class="mt-3"></div>
     </div>
   </div>
 {% endblock %}
