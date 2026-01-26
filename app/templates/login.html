@@ -1,17 +1,26 @@
 {% extends "base_public.html" %}
 {% block content %}
 
-{% set active_tab = "ad" if error_ad and not error_local else "local" %}
+{#
+  Default tab:
+  - If AD auth mode is enabled, show AD tab by default
+  - If there is an error, keep the corresponding tab active
+#}
+{% set active_tab = "ad" if auth_mode == "ad" else "local" %}
+{% if error_local %}{% set active_tab = "local" %}{% endif %}
+{% if error_ad and not error_local %}{% set active_tab = "ad" %}{% endif %}
 
-<div class="d-flex align-items-center justify-content-between mb-3">
-  <h1 class="h4 m-0">AD Portal — Вход</h1>
-  <div class="text-secondary small">
-    Режим: <strong>{{ auth_mode|upper }}</strong>
-  </div>
-</div>
+<div class="auth-center">
+  <div class="auth-box">
+    <div class="text-center mb-3">
+      <div class="auth-title">AD Tools</div>
+      <div class="text-secondary small">
+        Вход · режим: <strong>{{ auth_mode|upper }}</strong>
+      </div>
+    </div>
 
-<div class="card shadow-sm">
-  <div class="card-body p-4">
+    <div class="card shadow-sm">
+      <div class="card-body p-4">
 
     <ul class="nav nav-pills mb-3" role="tablist">
       <li class="nav-item" role="presentation">
@@ -102,6 +111,8 @@
         </div>
       </div>
 
+    </div>
+      </div>
     </div>
   </div>
 </div>

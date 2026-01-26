@@ -1,9 +1,167 @@
-.badge-tag { margin-right: 0.25rem; margin-bottom: 0.25rem; }
+/*
+  AD Portal — UI skin (Bootstrap 5.3)
+  Goals:
+  - More modern typography and spacing
+  - Cleaner cards/forms/buttons
+  - Responsive behavior for small screens
+  - Light/Dark theme compatibility via data-bs-theme
+*/
+
+:root {
+  --app-radius: 12px;
+  --app-radius-sm: 10px;
+  --app-shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 8px 24px rgba(0, 0, 0, 0.06);
+  --app-font: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", Arial, "Liberation Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+  --app-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+html {
+  /* Slightly smaller base to avoid "too large" look on FullHD.
+     Bootstrap uses rem, so this cascades predictably. */
+  font-size: 15px;
+}
+
+body {
+  font-family: var(--app-font);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+code,
+pre {
+  font-family: var(--app-mono);
+}
+
+/* Make containers feel less cramped on smaller screens */
+.container {
+  padding-left: 1rem;
+  padding-right: 1rem;
+}
+
+/* Navbar */
+.navbar {
+  /* Subtle separation on both light/dark */
+  border-bottom: 1px solid var(--bs-border-color-translucent);
+}
+
+.navbar-brand {
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
+
+/* Cards */
+.card {
+  border-radius: var(--app-radius);
+  border-color: var(--bs-border-color-translucent);
+}
+
+.card.shadow-sm {
+  box-shadow: var(--app-shadow) !important;
+}
+
+/* Buttons */
+.btn {
+  border-radius: var(--app-radius-sm);
+}
+
+.btn:focus-visible,
+.form-control:focus-visible,
+.form-select:focus-visible {
+  outline: none;
+}
+
+/* Inputs */
+.form-control,
+.form-select,
+.input-group-text {
+  border-radius: var(--app-radius-sm);
+}
+
+.form-control:focus,
+.form-select:focus {
+  box-shadow: 0 0 0 0.25rem rgba(var(--bs-primary-rgb), 0.18);
+}
+
+/* Headings */
+h1, h2, h3, h4, h5, h6 {
+  letter-spacing: 0.1px;
+}
+
+/* Theme toggle button */
+.theme-toggle {
+  width: 38px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.theme-toggle svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* Login page centering + narrower card */
+.auth-center {
+  min-height: calc(100vh - 88px); /* navbar + paddings */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.auth-box {
+  width: 100%;
+  max-width: 620px;
+}
+
+.auth-title {
+  font-weight: 800;
+  letter-spacing: 0.2px;
+  font-size: 1.35rem;
+  line-height: 1.1;
+}
+
+@media (max-width: 575.98px) {
+  .auth-center { min-height: calc(100vh - 78px); }
+  .auth-box { max-width: 100%; }
+}
+
+/* Connection mode segmented control (same height as inputs) */
+.conn-mode .btn {
+  padding: 0.375rem 0.75rem;
+  line-height: 1.5;
+  min-height: calc(1.5em + 0.75rem + 2px); /* Bootstrap .form-control height */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+}
 
 /* htmx loading indicators */
 .htmx-indicator { display: none; }
 .htmx-request .htmx-indicator { display: inline-block; }
 
+/* Badges */
+.badge-tag { margin-right: 0.25rem; margin-bottom: 0.25rem; }
+
 /* group badges in "Подробнее" */
 .group-badges { display: flex; flex-wrap: wrap; gap: 0.35rem; }
-.badge-group { font-weight: 500; }
+.badge-group { font-weight: 600; }
+
+/* Collapse body look */
+.collapse .card.card-body {
+  border-radius: var(--app-radius-sm);
+}
+
+/* Responsive tweaks */
+@media (max-width: 575.98px) {
+  html { font-size: 14.5px; }
+  .card-body.p-4 { padding: 1rem !important; }
+  .theme-toggle { width: 40px; }
+}
+
+@media (min-width: 1200px) {
+  /* Slightly improve readability on large screens without making fonts huge */
+  html { font-size: 15.25px; }
+}
