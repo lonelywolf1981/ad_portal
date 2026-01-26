@@ -1,0 +1,27 @@
+{% set groups = groups_cache %}
+
+<h2 class="h6">3) Контроль доступа</h2>
+
+<div class="row g-3">
+  <div class="col-md-6">
+    <label class="form-label fw-semibold">Кто может входить в приложение (AD-группы)</label>
+    <select id="allowed_app_groups" class="form-select" name="allowed_app_group_dns" multiple size="10">
+      {% for g in groups %}
+        <option value="{{ g.dn }}" {% if g.dn in selected_app_dns %}selected{% endif %}>{{ g.name }}</option>
+      {% endfor %}
+    </select>
+    <div class="form-text">Можно выбрать несколько групп.</div>
+    <div class="mt-2" id="badges_app"></div>
+  </div>
+
+  <div class="col-md-6">
+    <label class="form-label fw-semibold">Кто имеет доступ к настройкам (AD-группы)</label>
+    <select id="allowed_settings_groups" class="form-select" name="allowed_settings_group_dns" multiple size="10">
+      {% for g in groups %}
+        <option value="{{ g.dn }}" {% if g.dn in selected_settings_dns %}selected{% endif %}>{{ g.name }}</option>
+      {% endfor %}
+    </select>
+    <div class="form-text">Можно выбрать несколько групп.</div>
+    <div class="mt-2" id="badges_settings"></div>
+  </div>
+</div>

@@ -1,0 +1,109 @@
+{% extends "base_public.html" %}
+{% block content %}
+
+{% set active_tab = "ad" if error_ad and not error_local else "local" %}
+
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <h1 class="h4 m-0">AD Portal — Вход</h1>
+  <div class="text-secondary small">
+    Режим: <strong>{{ auth_mode|upper }}</strong>
+  </div>
+</div>
+
+<div class="card shadow-sm">
+  <div class="card-body p-4">
+
+    <ul class="nav nav-pills mb-3" role="tablist">
+      <li class="nav-item" role="presentation">
+        <button
+          class="nav-link {% if active_tab == 'local' %}active{% endif %}"
+          data-bs-toggle="pill"
+          data-bs-target="#pane-local"
+          type="button"
+          role="tab"
+        >Локальный вход</button>
+      </li>
+
+      <li class="nav-item" role="presentation">
+        <button
+          class="nav-link {% if active_tab == 'ad' %}active{% endif %}"
+          data-bs-toggle="pill"
+          data-bs-target="#pane-ad"
+          type="button"
+          role="tab"
+        >Вход через AD</button>
+      </li>
+    </ul>
+
+    <div class="tab-content">
+
+      <div class="tab-pane fade {% if active_tab == 'local' %}show active{% endif %}" id="pane-local" role="tabpanel">
+        {% if error_local %}
+          <div class="alert alert-danger py-2">{{ error_local }}</div>
+        {% endif %}
+
+        <form method="post" action="/login/local">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Логин</label>
+            <input name="username" class="form-control" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Пароль</label>
+            <input name="password" type="password" class="form-control" required>
+          </div>
+          <button class="btn btn-primary w-100">Войти</button>
+        </form>
+
+        <div class="text-secondary small mt-3">
+          Локальный администратор всегда может войти для обслуживания (break-glass).
+        </div>
+      </div>
+
+      <div class="tab-pane fade {% if active_tab == 'ad' %}show active{% endif %}" id="pane-ad" role="tabpanel">
+
+        {% if auth_mode != "ad" %}
+          <div class="alert alert-warning py-2">
+            AD-вход сейчас отключён. Включите его в <a href="/settings">настройках</a>.
+          </div>
+        {% endif %}
+
+        {% if error_ad %}
+          <div class="alert alert-danger py-2">{{ error_ad }}</div>
+        {% endif %}
+
+        <form method="post" action="/login/ad">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Логин</label>
+            <input
+              name="username"
+              class="form-control"
+              placeholder="sAMAccountName или user@domain"
+              required
+              {% if auth_mode != "ad" %}disabled{% endif %}
+            >
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Пароль</label>
+            <input
+              name="password"
+              type="password"
+              class="form-control"
+              required
+              {% if auth_mode != "ad" %}disabled{% endif %}
+            >
+          </div>
+          <button class="btn btn-outline-primary w-100" {% if auth_mode != "ad" %}disabled{% endif %}>
+            Войти через AD
+          </button>
+        </form>
+
+        <div class="text-secondary small mt-3">
+          Доступ определяется выбранными группами.
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+{% endblock %}

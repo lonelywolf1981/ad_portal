@@ -1,0 +1,69 @@
+from __future__ import annotations
+
+from datetime import datetime
+from sqlalchemy import String, DateTime, Boolean, Integer, Text
+from sqlalchemy.orm import Mapped, mapped_column
+
+from .db import Base
+
+
+class LoginAudit(Base):
+    __tablename__ = "login_audit"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    ts: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+    username: Mapped[str] = mapped_column(String(128), nullable=False)
+    auth_type: Mapped[str] = mapped_column(String(16), default="local", nullable=False)  # local|ad
+    success: Mapped[bool] = mapped_column(Boolean, nullable=False)
+
+    ip: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    user_agent: Mapped[str] = mapped_column(String(512), default="", nullable=False)
+    result_code: Mapped[str] = mapped_column(String(32), default="", nullable=False)  # ok|invalid|forbidden|error
+    details: Mapped[str] = mapped_column(String(512), default="", nullable=False)
+
+
+class LocalUser(Base):
+    __tablename__ = "local_users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    username: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class AppSettings(Base):
+    __tablename__ = "app_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)  # always 1
+
+    auth_mode: Mapped[str] = mapped_column(String(16), default="local", nullable=False)  # local|ad
+
+    ad_dc_short: Mapped[str] = mapped_column(String(64), default="", nullable=False)     # e.g. DC1
+    ad_domain: Mapped[str] = mapped_column(String(255), default="", nullable=False)     # e.g. ubc.local.net
+    ad_port: Mapped[int] = mapped_column(Integer, default=636, nullable=False)
+    ad_use_ssl: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    ad_starttls: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+    ad_bind_username: Mapped[str] = mapped_column(String(128), default="", nullable=False)   # e.g. ldap_bind
+    ad_bind_password_enc: Mapped[str] = mapped_column(String(2048), default="", nullable=False)
+
+    ad_tls_validate: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    ad_ca_pem: Mapped[str] = mapped_column(Text, default="", nullable=False)
+
+    allowed_app_group_dns: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    allowed_settings_group_dns: Mapped[str] = mapped_column(Text, default="", nullable=False)
+
+    groups_cache_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+    groups_cache_ts: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    last_ad_test_ts: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_ad_test_ok: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    last_ad_test_message: Mapped[str] = mapped_column(String(512), default="", nullable=False)
+
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)

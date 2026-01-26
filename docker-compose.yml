@@ -1,0 +1,60 @@
+services:
+  web:
+    build: .
+    container_name: ad_portal_web
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      - redis
+    expose:
+      - "8000"
+    dns:
+      # ВАЖНО: укажите DNS вашего AD (обычно DC), чтобы резолвились FQDN домена
+      - 192.168.66.11
+    networks:
+      - adnet
+
+  redis:
+    image: redis:7-alpine
+    container_name: ad_portal_redis
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    networks:
+      - adnet
+
+  worker:
+    build: .
+    container_name: ad_portal_worker
+    env_file:
+      - .env
+    depends_on:
+      - redis
+    command: ["celery", "-A", "app.celery_app:celery_app", "worker", "-l", "INFO"]
+    volumes:
+      - ./data:/app/data
+    dns:
+      - 192.168.66.11
+    networks:
+      - adnet
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: ad_portal_nginx
+    depends_on:
+      - web
+    ports:
+      - "8484:80"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+    networks:
+      - adnet
+
+volumes:
+  redis_data:
+
+networks:
+  adnet:
+    driver: bridge

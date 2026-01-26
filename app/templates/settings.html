@@ -1,0 +1,165 @@
+{% extends "base_app.html" %}
+{% block content %}
+
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <h1 class="h5 m-0">Настройки</h1>
+  {% if saved %}
+    <span class="badge text-bg-success">Сохранено</span>
+  {% endif %}
+</div>
+
+<div class="row g-4">
+  <div class="col-12 col-lg-8">
+    <div class="card shadow-sm">
+      <div class="card-body">
+
+        <form id="settings-form" method="post" action="/settings/save">
+
+          <h2 class="h6">1) Режим авторизации</h2>
+          <div class="mb-3">
+            <div class="form-check form-check-inline">
+              <input class="form-check-input" type="radio" name="auth_mode" id="auth_local" value="local" {% if st.auth_mode=="local" %}checked{% endif %}>
+              <label class="form-check-label" for="auth_local">LOCAL</label>
+            </div>
+            <div class="form-check form-check-inline">
+              <input class="form-check-input" type="radio" name="auth_mode" id="auth_ad" value="ad" {% if st.auth_mode=="ad" %}checked{% endif %}>
+              <label class="form-check-label" for="auth_ad">AD</label>
+            </div>
+            <div class="form-text">
+              Рекомендуется оставить локального администратора, чтобы не потерять доступ к настройкам.
+            </div>
+          </div>
+
+          <hr>
+
+          <h2 class="h6">2) Настройки AD (максимально просто)</h2>
+
+          <div class="row g-3">
+            <div class="col-md-3">
+              <label class="form-label fw-semibold">DC</label>
+              <input class="form-control" name="ad_dc_short" value="{{ st.ad_dc_short }}" placeholder="DC1" required>
+              <div class="form-text">Только имя, без домена</div>
+            </div>
+
+            <div class="col-md-5">
+              <label class="form-label fw-semibold">Домен</label>
+              <input class="form-control" name="ad_domain" value="{{ st.ad_domain }}" placeholder="ubc.local.net" required>
+            </div>
+
+            <div class="col-md-4">
+              <label class="form-label fw-semibold d-block">Способ подключения</label>
+
+              <div class="btn-group w-100" role="group" aria-label="AD connection mode">
+                <input
+                  type="radio"
+                  class="btn-check"
+                  name="ad_conn_mode"
+                  id="conn_ldaps"
+                  value="ldaps"
+                  autocomplete="off"
+                  {% if st.ad_use_ssl %}checked{% endif %}
+                >
+                <label class="btn btn-outline-secondary" for="conn_ldaps">LDAPS (636)</label>
+
+                <input
+                  type="radio"
+                  class="btn-check"
+                  name="ad_conn_mode"
+                  id="conn_starttls"
+                  value="starttls"
+                  autocomplete="off"
+                  {% if st.ad_starttls %}checked{% endif %}
+                >
+                <label class="btn btn-outline-secondary" for="conn_starttls">LDAP + StartTLS (389)</label>
+              </div>
+            </div>
+          </div>
+
+          <div class="row g-3 mt-1">
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Bind user</label>
+              <input class="form-control" name="ad_bind_username" value="{{ st.ad_bind_username }}" placeholder="ldap_bind" required>
+              <div class="form-text">Вводите только имя. Приложение использует principal вида <code>user@domain</code>.</div>
+            </div>
+
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Bind password</label>
+              <input class="form-control" name="ad_bind_password" type="password" placeholder="(не изменять — оставьте пустым)">
+              <div class="form-text">Если оставить пустым — пароль не меняется.</div>
+            </div>
+          </div>
+
+          <div class="mt-3 d-flex gap-2">
+            <button
+              type="button"
+              class="btn btn-outline-primary"
+              hx-post="/settings/ad/test"
+              hx-include="#settings-form"
+              hx-target="#ad-test-result"
+              hx-swap="innerHTML"
+            >
+              Проверить и загрузить группы
+            </button>
+
+            <button type="submit" class="btn btn-primary">Сохранить</button>
+          </div>
+
+          <div id="ad-test-result" class="mt-3">
+            {% if st.last_ad_test_ts %}
+              <div class="alert {% if st.last_ad_test_ok %}alert-success{% else %}alert-danger{% endif %} py-2 mb-0">
+                {{ st.last_ad_test_message }}
+              </div>
+            {% endif %}
+          </div>
+
+          <hr>
+
+          <div id="group-selectors">
+            {% include "settings_groups.html" %}
+          </div>
+
+        </form>
+
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-lg-4">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h2 class="h6">Справка</h2>
+        <ul class="small mb-0">
+          <li>AD-группы подгружаются кнопкой “Проверить и загрузить группы”.</li>
+          <li>Выберите несколько групп для входа в приложение и отдельно — для доступа к настройкам.</li>
+          <li>При режиме AD локальные админы всё равно могут войти (break-glass).</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  function updateBadges(selectId, badgesId){
+    const sel = document.getElementById(selectId);
+    const box = document.getElementById(badgesId);
+    if(!sel || !box) return;
+    const selected = Array.from(sel.selectedOptions).map(o => o.text);
+    box.innerHTML = selected.length
+      ? selected.map(t => `<span class="badge text-bg-secondary badge-tag">${t}</span>`).join("")
+      : '<span class="text-secondary small">Не выбрано</span>';
+  }
+  document.addEventListener("change", function(e){
+    if(e.target && e.target.id === "allowed_app_groups"){
+      updateBadges("allowed_app_groups", "badges_app");
+    }
+    if(e.target && e.target.id === "allowed_settings_groups"){
+      updateBadges("allowed_settings_groups", "badges_settings");
+    }
+  });
+  updateBadges("allowed_app_groups", "badges_app");
+  updateBadges("allowed_settings_groups", "badges_settings");
+})();
+</script>
+
+{% endblock %}

@@ -1,0 +1,29 @@
+{% extends "base_app.html" %}
+{% block content %}
+  <div class="card shadow-sm">
+    <div class="card-body">
+      <h1 class="h5 mb-2">Вы вошли</h1>
+
+      <div class="row">
+        <div class="col-md-6">
+          <div class="text-secondary">Пользователь: <strong>{{ user["u"] }}</strong></div>
+          <div class="text-secondary">Тип: <strong>{{ user["auth"] }}</strong></div>
+          <div class="text-secondary">Доступ к настройкам: <strong>{{ "Да" if user.get("settings") else "Нет" }}</strong></div>
+        </div>
+        <div class="col-md-6">
+          <div class="text-secondary">Отображаемое имя: <strong>{{ user.get("dn","") }}</strong></div>
+        </div>
+      </div>
+
+      {% if user.get("auth") == "ad" %}
+        <hr>
+        <div class="small text-secondary mb-2">Группы (memberOf, DN) — первые 20:</div>
+        <ul class="small mb-0">
+          {% for g in user.get("groups", [])[:20] %}
+            <li>{{ g }}</li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+    </div>
+  </div>
+{% endblock %}
