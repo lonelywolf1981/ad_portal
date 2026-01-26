@@ -1,0 +1,82 @@
+{% if error %}
+  <div class="alert alert-danger py-2 mb-0">{{ error }}</div>
+{% else %}
+  {% if users %}
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+      <div>
+        <span class="text-secondary small">Хост:</span>
+        <code>{{ target }}</code>
+      </div>
+      <div class="text-secondary small">
+        Метод: <strong>{{ method }}</strong>
+        <span class="mx-1">•</span>
+        Время: <strong>{{ elapsed_ms }} мс</strong>
+      </div>
+    </div>
+
+    <div class="mt-2">
+      <div class="small text-secondary mb-1">Залогинен(ы):</div>
+      <div class="d-flex flex-wrap gap-2">
+        {% for u in users %}
+          <span class="badge text-bg-primary">{{ u }}</span>
+        {% endfor %}
+      </div>
+    </div>
+  {% else %}
+    <div class="alert alert-warning py-2 mb-0">Поиск не удался.</div>
+    <div class="small text-secondary mt-2">
+      Хост: <code>{{ target }}</code>
+      {% if elapsed_ms is not none %}
+        <span class="mx-1">•</span>
+        Время: <strong>{{ elapsed_ms }} мс</strong>
+      {% endif %}
+    </div>
+  {% endif %}
+
+  {% if attempts %}
+    <div class="mt-3">
+      <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#host-attempts" aria-expanded="false" aria-controls="host-attempts">
+        Подробности
+      </button>
+
+      <div class="collapse mt-2" id="host-attempts">
+        <div class="card card-body bg-body-tertiary p-2">
+          <div class="table-responsive">
+            <table class="table table-sm mb-0 align-middle">
+              <thead>
+                <tr class="text-secondary">
+                  <th>Способ</th>
+                  <th>Статус</th>
+                  <th>Время</th>
+                  <th>Сообщение</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for a in attempts %}
+                  <tr>
+                    <td><code>{{ a.method }}</code></td>
+                    <td>
+                      {% if a.status == 'ok' %}
+                        <span class="badge text-bg-success">ok</span>
+                      {% elif a.status == 'empty' %}
+                        <span class="badge text-bg-secondary">empty</span>
+                      {% elif a.status == 'timeout' %}
+                        <span class="badge text-bg-warning">timeout</span>
+                      {% elif a.status == 'skipped' %}
+                        <span class="badge text-bg-info">skipped</span>
+                      {% else %}
+                        <span class="badge text-bg-danger">error</span>
+                      {% endif %}
+                    </td>
+                    <td class="text-secondary">{{ a.elapsed_ms }} мс</td>
+                    <td class="text-secondary">{{ a.message }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  {% endif %}
+{% endif %}

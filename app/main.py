@@ -9,11 +9,14 @@ import base64
 from datetime import datetime, timezone
 import re
 
+from sqlalchemy import text
+
 from .env_settings import get_env
 from .db import engine
 from .models import Base
 from .repo import db_session, get_or_create_settings, ensure_bootstrap_admin
 from .security import hash_password
+from .crypto import decrypt_str
 from .session import create_session
 from .deps import get_current_user, require_settings_access, SESSION_MAX_AGE
 from .services import (
@@ -23,8 +26,29 @@ from .services import (
 from .services import ad_cfg_from_settings
 from .ad_utils import split_group_dns
 from .ldap_client import ADClient
+from .host_logon import find_logged_on_users
 
 Base.metadata.create_all(bind=engine)
+
+
+def _migrate_app_settings() -> None:
+    """Minimal SQLite schema migration for newly added columns (no Alembic)."""
+    with engine.begin() as conn:
+        cols = [r[1] for r in conn.exec_driver_sql("PRAGMA table_info(app_settings)").fetchall()]
+
+        if "host_query_username" not in cols:
+            conn.exec_driver_sql(
+                "ALTER TABLE app_settings ADD COLUMN host_query_username VARCHAR(128) NOT NULL DEFAULT ''"
+            )
+        if "host_query_password_enc" not in cols:
+            conn.exec_driver_sql(
+                "ALTER TABLE app_settings ADD COLUMN host_query_password_enc VARCHAR(2048) NOT NULL DEFAULT ''"
+            )
+        if "host_query_timeout_s" not in cols:
+            conn.exec_driver_sql(
+                "ALTER TABLE app_settings ADD COLUMN host_query_timeout_s INTEGER NOT NULL DEFAULT 60"
+            )
+
 
 app = FastAPI(title="AD Portal")
 templates = Jinja2Templates(directory="app/templates")
@@ -189,6 +213,7 @@ def _build_detail_items(details: dict) -> list[dict]:
 
 @app.on_event("startup")
 def _startup():
+    _migrate_app_settings()
     env = get_env()
     with db_session() as db:
         get_or_create_settings(db)
@@ -289,7 +314,12 @@ def logout():
 
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request):
-    user = get_current_user(request)
+    try:
+        user = get_current_user(request)
+    except HTTPException as e:
+        if e.status_code == status.HTTP_401_UNAUTHORIZED:
+            return RedirectResponse(url="/login", status_code=303)
+        raise
     return templates.TemplateResponse("index.html", {"request": request, "user": user})
 
 
@@ -336,6 +366,9 @@ def settings_save(
     ad_conn_mode: str = Form("ldaps"),
     ad_bind_username: str = Form(""),
     ad_bind_password: str = Form(""),
+    host_query_username: str = Form(""),
+    host_query_password: str = Form(""),
+    host_query_timeout_s: int = Form(60),
     allowed_app_group_dns: list[str] = Form([]),
     allowed_settings_group_dns: list[str] = Form([]),
 ):
@@ -353,6 +386,9 @@ def settings_save(
                 "ad_conn_mode": ad_conn_mode,
                 "ad_bind_username": ad_bind_username,
                 "ad_bind_password": ad_bind_password,
+                "host_query_username": host_query_username,
+                "host_query_password": host_query_password,
+                "host_query_timeout_s": host_query_timeout_s,
                 "allowed_app_group_dns": allowed_app_group_dns,
                 "allowed_settings_group_dns": allowed_settings_group_dns,
             },
@@ -368,6 +404,9 @@ def settings_ad_test(
     ad_conn_mode: str = Form("ldaps"),
     ad_bind_username: str = Form(""),
     ad_bind_password: str = Form(""),
+    host_query_username: str = Form(""),
+    host_query_password: str = Form(""),
+    host_query_timeout_s: int = Form(60),
 ):
     _ = require_settings_access(request)
 
@@ -383,6 +422,9 @@ def settings_ad_test(
                 "ad_conn_mode": ad_conn_mode.strip(),
                 "ad_bind_username": ad_bind_username.strip(),
                 "ad_bind_password": ad_bind_password,
+                "host_query_username": host_query_username,
+                "host_query_password": host_query_password,
+                "host_query_timeout_s": host_query_timeout_s,
             },
         )
 
@@ -510,4 +552,51 @@ def user_details(request: Request, id: str = ""):
     return templates.TemplateResponse(
         "user_details.html",
         {"request": request, "items": items, "error": ""},
+    )
+
+
+@app.get("/hosts/logon", response_class=HTMLResponse)
+def hosts_logon(request: Request, target: str = ""):
+    """Определить, какой пользователь(и) залогинен на удалённом хосте."""
+    try:
+        _ = get_current_user(request)
+    except HTTPException as e:
+        if e.status_code == status.HTTP_401_UNAUTHORIZED:
+            return HTMLResponse(content="", status_code=401, headers={"HX-Redirect": "/login"})
+        raise
+
+    target = (target or "").strip()
+    if len(target) < 2:
+        return templates.TemplateResponse(
+            "host_logon_results.html",
+            {"request": request, "target": target, "users": [], "method": "", "elapsed_ms": 0, "attempts": [], "error": "Введите имя хоста или IP."},
+        )
+
+    with db_session() as db:
+        st = get_or_create_settings(db)
+
+        domain_suffix = (st.ad_domain or "").strip()
+        query_user = (st.host_query_username or "").strip()
+        query_pwd = decrypt_str(getattr(st, "host_query_password_enc", "") or "")
+        timeout_s = int(getattr(st, "host_query_timeout_s", 60) or 60)
+
+    users, method, elapsed_ms, attempts = find_logged_on_users(
+        raw_target=target,
+        domain_suffix=domain_suffix,
+        query_username=query_user,
+        query_password=query_pwd,
+        per_method_timeout_s=timeout_s,
+    )
+
+    return templates.TemplateResponse(
+        "host_logon_results.html",
+        {
+            "request": request,
+            "target": target,
+            "users": users,
+            "method": method,
+            "elapsed_ms": elapsed_ms,
+            "attempts": attempts,
+            "error": "",
+        },
     )

@@ -89,7 +89,34 @@
             </div>
           </div>
 
-          <div class="mt-3 d-flex gap-2">
+          
+          <hr class="my-4">
+
+          <h2 class="h6 mb-3">Кто залогинен на хосте</h2>
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Host query user</label>
+              <input class="form-control" name="host_query_username" value="{{ st.host_query_username or '' }}" placeholder="DOMAIN\user или user@domain">
+              <div class="form-text">
+                Учётная запись, от имени которой выполняется опрос хоста по WinRM/WMI/SMB.
+                Рекомендуется указывать <code>DOMAIN\user</code> (если NETBIOS домена отличается — укажите явно).
+              </div>
+            </div>
+
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Host query password</label>
+              <input class="form-control" name="host_query_password" type="password" placeholder="(не изменять — оставьте пустым)">
+              <div class="form-text">Если оставить пустым — пароль не меняется.</div>
+            </div>
+
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">Timeout на способ (сек.)</label>
+              <input class="form-control" name="host_query_timeout_s" type="number" min="5" max="300" value="{{ st.host_query_timeout_s or 60 }}">
+              <div class="form-text">Ограничение времени на каждый способ (WinRM / WMI / SMB).</div>
+            </div>
+          </div>
+
+<div class="mt-3 d-flex gap-2">
             <button
               type="button"
               class="btn btn-outline-primary"

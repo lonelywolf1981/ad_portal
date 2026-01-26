@@ -19,39 +19,94 @@
 
   <div class="card shadow-sm mt-3">
     <div class="card-body">
-      <h2 class="h6 mb-3">Поиск пользователей в AD</h2>
+      <ul class="nav nav-tabs" id="mainTabs" role="tablist">
+        <li class="nav-item" role="presentation">
+          <button class="nav-link active" id="tab-users" data-bs-toggle="tab" data-bs-target="#pane-users" type="button" role="tab" aria-controls="pane-users" aria-selected="true">
+            Поиск пользователей
+          </button>
+        </li>
+        <li class="nav-item" role="presentation">
+          <button class="nav-link" id="tab-host" data-bs-toggle="tab" data-bs-target="#pane-host" type="button" role="tab" aria-controls="pane-host" aria-selected="false">
+            Кто залогинен на хосте
+          </button>
+        </li>
+      </ul>
 
-      <form
-        class="row g-2 align-items-center"
-        hx-get="/users/search"
-        hx-target="#user-results"
-        hx-swap="innerHTML"
-      >
-        <div class="col-md-8">
-          <input
-            type="text"
-            class="form-control"
-            name="q"
-            placeholder="Имя, фамилия или логин (часть)"
-            autocomplete="off"
+      <div class="tab-content pt-3" id="mainTabsContent">
+
+        <div class="tab-pane fade show active" id="pane-users" role="tabpanel" aria-labelledby="tab-users">
+          <h2 class="h6 mb-3">Поиск пользователей в AD</h2>
+
+          <form
+            class="row g-2 align-items-center"
+            hx-get="/users/search"
+            hx-target="#user-results"
+            hx-swap="innerHTML"
           >
-        </div>
-        <div class="col-md-2 d-grid">
-          <button class="btn btn-primary" type="submit">Найти</button>
-        </div>
-        <div class="col-md-2">
-          <div class="d-flex align-items-center gap-2">
-            <div class="spinner-border spinner-border-sm text-secondary htmx-indicator" role="status" aria-hidden="true"></div>
-            <div class="small text-secondary htmx-indicator">Поиск...</div>
+            <div class="col-md-8">
+              <input
+                type="text"
+                class="form-control"
+                name="q"
+                placeholder="Имя, фамилия или логин (часть)"
+                autocomplete="off"
+              >
+            </div>
+            <div class="col-md-2 d-grid">
+              <button class="btn btn-primary" type="submit">Найти</button>
+            </div>
+            <div class="col-md-2">
+              <div class="d-flex align-items-center gap-2">
+                <div class="spinner-border spinner-border-sm text-secondary htmx-indicator" role="status" aria-hidden="true"></div>
+                <div class="small text-secondary htmx-indicator">Поиск...</div>
+              </div>
+            </div>
+          </form>
+
+          <div class="small text-secondary mt-2">
+            Поиск выполняется по части имени, фамилии или логина. В «Подробнее» пустые поля не отображаются.
           </div>
+
+          <div id="user-results" class="mt-3"></div>
         </div>
-      </form>
 
-      <div class="small text-secondary mt-2">
-        Поиск выполняется по части имени, фамилии или логина. В «Подробнее» пустые поля не отображаются.
+        <div class="tab-pane fade" id="pane-host" role="tabpanel" aria-labelledby="tab-host">
+          <h2 class="h6 mb-3">Кто залогинен на хосте</h2>
+
+          <form
+            class="row g-2 align-items-center"
+            hx-get="/hosts/logon"
+            hx-target="#host-logon-results"
+            hx-swap="innerHTML"
+          >
+            <div class="col-md-8">
+              <input
+                type="text"
+                class="form-control"
+                name="target"
+                placeholder="Имя хоста (например, prod-00835) или IP"
+                autocomplete="off"
+              >
+            </div>
+            <div class="col-md-2 d-grid">
+              <button class="btn btn-primary" type="submit">Проверить</button>
+            </div>
+            <div class="col-md-2">
+              <div class="d-flex align-items-center gap-2">
+                <div class="spinner-border spinner-border-sm text-secondary htmx-indicator" role="status" aria-hidden="true"></div>
+                <div class="small text-secondary htmx-indicator">Поиск...</div>
+              </div>
+            </div>
+          </form>
+
+          <div class="small text-secondary mt-2">
+            Способы перебираются по очереди: WinRM → WMI → SMB. Таймаут на каждый способ задаётся в «Настройках».
+          </div>
+
+          <div id="host-logon-results" class="mt-3"></div>
+        </div>
+
       </div>
-
-      <div id="user-results" class="mt-3"></div>
     </div>
   </div>
 {% endblock %}

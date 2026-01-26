@@ -177,6 +177,22 @@ def save_settings(db: Session, st: AppSettings, form: dict) -> None:
     if pw:
         st.ad_bind_password_enc = encrypt_str(pw)
 
+    # Host logon query settings
+    st.host_query_username = (form.get("host_query_username") or "").strip()
+    qpw = form.get("host_query_password") or ""
+    if qpw:
+        st.host_query_password_enc = encrypt_str(qpw)
+
+    try:
+        t = int(form.get("host_query_timeout_s") or 60)
+    except Exception:
+        t = 60
+    if t < 5:
+        t = 5
+    if t > 300:
+        t = 300
+    st.host_query_timeout_s = t
+
     # Access groups
     st.allowed_app_group_dns = ";".join(form.get("allowed_app_group_dns", []))
     st.allowed_settings_group_dns = ";".join(form.get("allowed_settings_group_dns", []))

@@ -53,6 +53,12 @@ class AppSettings(Base):
     ad_bind_username: Mapped[str] = mapped_column(String(128), default="", nullable=False)   # e.g. ldap_bind
     ad_bind_password_enc: Mapped[str] = mapped_column(String(2048), default="", nullable=False)
 
+    # Remote host logon query settings (WinRM/WMI/SMB)
+    host_query_username: Mapped[str] = mapped_column(String(128), default="", nullable=False)
+    host_query_password_enc: Mapped[str] = mapped_column(String(2048), default="", nullable=False)
+    host_query_timeout_s: Mapped[int] = mapped_column(Integer, default=60, nullable=False)
+
+
     ad_tls_validate: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     ad_ca_pem: Mapped[str] = mapped_column(Text, default="", nullable=False)
 
