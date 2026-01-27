@@ -1,7 +1,15 @@
+import os
+
 from celery import Celery
+
 from .env_settings import get_env
 
 REDIS_URL = get_env().redis_url
+
+# Use container TZ if provided (e.g. TZ=Asia/Almaty).
+# Celery otherwise logs/schedules in UTC by default.
+TZ_NAME = (os.getenv("TZ") or "UTC").strip() or "UTC"
+ENABLE_UTC = TZ_NAME.upper() in {"UTC", "GMT", "ETC/UTC", "ETC/GMT"}
 
 celery_app = Celery(
     "ad_portal",
@@ -13,8 +21,8 @@ celery_app.conf.update(
     task_serializer="json",
     accept_content=["json"],
     result_serializer="json",
-    enable_utc=False,
-    timezone="Asia/Almaty",
+    timezone=TZ_NAME,
+    enable_utc=ENABLE_UTC,
 )
 
 # Periodic scheduler (Celery Beat)

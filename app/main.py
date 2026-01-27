@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from .timezone_utils import format_iso_local
 
 from fastapi import FastAPI, Request, Form, HTTPException, status
 from fastapi.responses import RedirectResponse, HTMLResponse
@@ -328,13 +329,7 @@ def index(request: Request):
             st = get_or_create_settings(db)
             dt = getattr(st, "net_scan_last_run_ts", None)
             if dt:
-                try:
-                    net_scan_last_run = dt.isoformat(sep=" ", timespec="microseconds")
-                except TypeError:
-                    # Python < 3.11 or older datetime without timespec
-                    net_scan_last_run = dt.isoformat(sep=" ")
-                except Exception:
-                    net_scan_last_run = str(dt)
+                net_scan_last_run = format_iso_local(dt, timespec="microseconds")
             net_scan_last_summary = (getattr(st, "net_scan_last_summary", "") or "").strip()
     except Exception:
         # do not fail the main page if settings schema is missing

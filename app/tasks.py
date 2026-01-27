@@ -3,10 +3,11 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 from .celery_app import celery_app
-from .repo import db_session, get_or_create_settings
 from .crypto import decrypt_str
 from .net_scan import scan_presence
 from .presence import upsert_presence_bulk
+from .repo import db_session, get_or_create_settings
+from .timezone_utils import format_iso_local
 
 
 # If a scan crashes mid-flight, allow new runs after this TTL.
@@ -20,8 +21,7 @@ def _utcnow() -> datetime:
 
 @celery_app.task(name="app.tasks.maybe_run_network_scan")
 def maybe_run_network_scan() -> dict:
-    """
-    Runs frequently (Celery Beat). Decides whether a full scan is due and schedules it.
+    """Runs frequently (Celery Beat). Decides whether a full scan is due and schedules it.
 
     Returns a small status dict that ends up in worker logs.
     """
@@ -33,13 +33,17 @@ def maybe_run_network_scan() -> dict:
 
         now = _utcnow()
 
+        # Lock timestamp may be absent in ORM model if schema/model got out-of-sync.
+        lock_ts = getattr(st, "net_scan_lock_ts", None)
+
         # Clear stale lock (previous crash / killed worker)
-        if st.net_scan_lock_ts and (now - st.net_scan_lock_ts) > timedelta(hours=_LOCK_STALE_HOURS):
+        if lock_ts and (now - lock_ts) > timedelta(hours=_LOCK_STALE_HOURS):
             st.net_scan_lock_ts = None
             db.commit()
+            lock_ts = None
 
         # If locked -> a scan is already running
-        if st.net_scan_lock_ts:
+        if lock_ts:
             return {"status": "running"}
 
         interval_min = int(getattr(st, "net_scan_interval_min", 120) or 120)
@@ -49,11 +53,11 @@ def maybe_run_network_scan() -> dict:
         last = getattr(st, "net_scan_last_run_ts", None)
         if last and (now - last) < timedelta(minutes=interval_min):
             next_run = last + timedelta(minutes=interval_min)
-            try:
-                nxt = next_run.isoformat(sep=" ", timespec="seconds")
-            except Exception:
-                nxt = str(next_run)
-            return {"status": "not_due", "next_run": nxt}
+            return {
+                "status": "not_due",
+                # Show local time for humans (TZ from env, e.g. Asia/Almaty), without TZ suffix.
+                "next_run": format_iso_local(next_run, timespec="seconds"),
+            }
 
         # Lock and schedule scan
         st.net_scan_lock_ts = now
@@ -82,7 +86,7 @@ def run_network_scan() -> dict:
         st = get_or_create_settings(db)
 
         # Ensure lock exists
-        if not st.net_scan_lock_ts:
+        if not getattr(st, "net_scan_lock_ts", None):
             st.net_scan_lock_ts = started
 
         # Optional: show that scan is running

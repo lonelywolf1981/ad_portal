@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .models import UserPresence
+from .timezone_utils import format_ru_local
 
 
 def normalize_login(raw: str) -> str:
@@ -28,29 +29,23 @@ def normalize_login(raw: str) -> str:
 
 
 def fmt_dt_ru(dt: Any) -> str:
-    """Human-friendly RU datetime string in UTC.
+    """Human-friendly RU datetime string in LOCAL time.
 
-    - If dt is naive, it is treated as UTC.
+    - If dt is naive, it is treated as UTC (how we store it in SQLite today).
+    - Timezone is taken from env TZ (e.g. TZ=Asia/Almaty).
     - Output: DD.MM.YYYY HH:MM:SS
     """
     if not dt:
         return ""
+
+    # Be tolerant to strings returned by SQLite raw queries.
+    if isinstance(dt, str) and not dt.strip():
+        return ""
+
     try:
-        # SQLAlchemy normally returns datetime, but be tolerant to strings.
-        if isinstance(dt, str):
-            # Try ISO-like first
-            try:
-                dt = datetime.fromisoformat(dt.replace("Z", "+00:00"))
-            except Exception:
-                return dt
-        if isinstance(dt, datetime):
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
-            dt = dt.astimezone(timezone.utc)
-            return dt.strftime("%d.%m.%Y %H:%M:%S")
+        return format_ru_local(dt)
     except Exception:
-        pass
-    return str(dt)
+        return str(dt)
 
 
 def get_presence_map(db: Session, logins: list[str]) -> dict[str, UserPresence]:
