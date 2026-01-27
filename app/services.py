@@ -193,6 +193,51 @@ def save_settings(db: Session, st: AppSettings, form: dict) -> None:
         t = 300
     st.host_query_timeout_s = t
 
+    # Background network scan settings
+    st.net_scan_enabled = bool(form.get("net_scan_enabled"))
+    st.net_scan_cidrs = (form.get("net_scan_cidrs") or "").strip()
+
+    try:
+        iv = int(form.get("net_scan_interval_min") or 120)
+    except Exception:
+        iv = 120
+    if iv < 30:
+        iv = 30
+    if iv > 24 * 60:
+        iv = 24 * 60
+    st.net_scan_interval_min = iv
+
+    # Optional advanced knobs
+    try:
+        c = int(form.get("net_scan_concurrency") or 64)
+    except Exception:
+        c = 64
+    if c < 4:
+        c = 4
+    if c > 256:
+        c = 256
+    st.net_scan_concurrency = c
+
+    try:
+        mt = int(form.get("net_scan_method_timeout_s") or 20)
+    except Exception:
+        mt = 20
+    if mt < 5:
+        mt = 5
+    if mt > 60:
+        mt = 60
+    st.net_scan_method_timeout_s = mt
+
+    try:
+        pt = int(form.get("net_scan_probe_timeout_ms") or 350)
+    except Exception:
+        pt = 350
+    if pt < 100:
+        pt = 100
+    if pt > 1500:
+        pt = 1500
+    st.net_scan_probe_timeout_ms = pt
+
     # Access groups
     st.allowed_app_group_dns = ";".join(form.get("allowed_app_group_dns", []))
     st.allowed_settings_group_dns = ";".join(form.get("allowed_settings_group_dns", []))

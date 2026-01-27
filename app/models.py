@@ -58,6 +58,22 @@ class AppSettings(Base):
     host_query_password_enc: Mapped[str] = mapped_column(String(2048), default="", nullable=False)
     host_query_timeout_s: Mapped[int] = mapped_column(Integer, default=60, nullable=False)
 
+    # Background network scan settings (periodic discovery: which user is logged on which host)
+    net_scan_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    net_scan_cidrs: Mapped[str] = mapped_column(Text, default="", nullable=False)  # one CIDR per line
+    net_scan_interval_min: Mapped[int] = mapped_column(Integer, default=120, nullable=False)
+
+    # Advanced knobs (optional)
+    net_scan_concurrency: Mapped[int] = mapped_column(Integer, default=64, nullable=False)
+    net_scan_method_timeout_s: Mapped[int] = mapped_column(Integer, default=20, nullable=False)
+    net_scan_probe_timeout_ms: Mapped[int] = mapped_column(Integer, default=350, nullable=False)
+
+    # Runtime info
+    net_scan_last_run_ts: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    net_scan_last_summary: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    net_scan_is_running: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    net_scan_run_started_ts: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
 
     ad_tls_validate: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     ad_ca_pem: Mapped[str] = mapped_column(Text, default="", nullable=False)
@@ -73,3 +89,16 @@ class AppSettings(Base):
     last_ad_test_message: Mapped[str] = mapped_column(String(512), default="", nullable=False)
 
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class UserPresence(Base):
+    """Last known location for a user (from background network scan)."""
+
+    __tablename__ = "user_presence"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_login: Mapped[str] = mapped_column(String(128), unique=True, index=True, nullable=False)  # normalized (lower)
+    host: Mapped[str] = mapped_column(String(255), default="", nullable=False)
+    ip: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    method: Mapped[str] = mapped_column(String(16), default="", nullable=False)
+    last_seen_ts: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)

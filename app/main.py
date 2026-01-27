@@ -13,7 +13,7 @@ from sqlalchemy import text
 
 from .env_settings import get_env
 from .db import engine
-from .models import Base
+from .schema import ensure_schema
 from .repo import db_session, get_or_create_settings, ensure_bootstrap_admin
 from .security import hash_password
 from .crypto import decrypt_str
@@ -27,27 +27,9 @@ from .services import ad_cfg_from_settings
 from .ad_utils import split_group_dns
 from .ldap_client import ADClient
 from .host_logon import find_logged_on_users
+from .presence import get_presence_map, normalize_login, fmt_dt_ru
 
-Base.metadata.create_all(bind=engine)
-
-
-def _migrate_app_settings() -> None:
-    """Minimal SQLite schema migration for newly added columns (no Alembic)."""
-    with engine.begin() as conn:
-        cols = [r[1] for r in conn.exec_driver_sql("PRAGMA table_info(app_settings)").fetchall()]
-
-        if "host_query_username" not in cols:
-            conn.exec_driver_sql(
-                "ALTER TABLE app_settings ADD COLUMN host_query_username VARCHAR(128) NOT NULL DEFAULT ''"
-            )
-        if "host_query_password_enc" not in cols:
-            conn.exec_driver_sql(
-                "ALTER TABLE app_settings ADD COLUMN host_query_password_enc VARCHAR(2048) NOT NULL DEFAULT ''"
-            )
-        if "host_query_timeout_s" not in cols:
-            conn.exec_driver_sql(
-                "ALTER TABLE app_settings ADD COLUMN host_query_timeout_s INTEGER NOT NULL DEFAULT 60"
-            )
+ensure_schema()
 
 
 app = FastAPI(title="AD Portal")
@@ -213,7 +195,7 @@ def _build_detail_items(details: dict) -> list[dict]:
 
 @app.on_event("startup")
 def _startup():
-    _migrate_app_settings()
+    ensure_schema()
     env = get_env()
     with db_session() as db:
         get_or_create_settings(db)
@@ -369,6 +351,12 @@ def settings_save(
     host_query_username: str = Form(""),
     host_query_password: str = Form(""),
     host_query_timeout_s: int = Form(60),
+    net_scan_enabled: str = Form(""),
+    net_scan_cidrs: str = Form(""),
+    net_scan_interval_min: int = Form(120),
+    net_scan_concurrency: int = Form(64),
+    net_scan_method_timeout_s: int = Form(20),
+    net_scan_probe_timeout_ms: int = Form(350),
     allowed_app_group_dns: list[str] = Form([]),
     allowed_settings_group_dns: list[str] = Form([]),
 ):
@@ -389,6 +377,12 @@ def settings_save(
                 "host_query_username": host_query_username,
                 "host_query_password": host_query_password,
                 "host_query_timeout_s": host_query_timeout_s,
+                "net_scan_enabled": net_scan_enabled,
+                "net_scan_cidrs": net_scan_cidrs,
+                "net_scan_interval_min": net_scan_interval_min,
+                "net_scan_concurrency": net_scan_concurrency,
+                "net_scan_method_timeout_s": net_scan_method_timeout_s,
+                "net_scan_probe_timeout_ms": net_scan_probe_timeout_ms,
                 "allowed_app_group_dns": allowed_app_group_dns,
                 "allowed_settings_group_dns": allowed_settings_group_dns,
             },
@@ -464,6 +458,33 @@ def settings_ad_test(
         )
 
 
+@app.post("/settings/net_scan/run", response_class=HTMLResponse)
+def settings_net_scan_run(request: Request):
+    _ = require_settings_access(request)
+
+    with db_session() as db:
+        st = get_or_create_settings(db)
+        if not getattr(st, "net_scan_enabled", False):
+            return HTMLResponse(
+                content="<div class='alert alert-warning py-2 mb-0'>Фоновое сканирование выключено. Включите его в настройках и сохраните.</div>",
+                status_code=200,
+            )
+        if getattr(st, "net_scan_is_running", False):
+            return HTMLResponse(
+                content="<div class='alert alert-info py-2 mb-0'>Сканирование уже выполняется.</div>",
+                status_code=200,
+            )
+
+    # Force run: bypass interval check, keep safety throttle in task.
+    from .tasks import maybe_run_network_scan
+
+    maybe_run_network_scan.delay(True)
+    return HTMLResponse(
+        content="<div class='alert alert-success py-2 mb-0'>Сканирование поставлено в очередь (Celery). Обновите страницу через пару минут, чтобы увидеть результат.</div>",
+        status_code=200,
+    )
+
+
 @app.get("/users/search", response_class=HTMLResponse)
 def users_search(request: Request, q: str = ""):
     # Require an active session; for htmx requests redirect via HX-Redirect.
@@ -507,6 +528,22 @@ def users_search(request: Request, q: str = ""):
             "login": it.get("login", "") or "",
             "email": it.get("mail", "") or "",
         })
+
+    # Enrich cards with last-known location (from background network scan)
+    try:
+        with db_session() as db:
+            pres = get_presence_map(db, [u.get("login", "") for u in users])
+        for u in users:
+            key = normalize_login(u.get("login", ""))
+            p = pres.get(key) if key else None
+            if not p:
+                continue
+            u["found_host"] = p.host or ""
+            u["found_ip"] = p.ip or ""
+            u["found_ts"] = fmt_dt_ru(p.last_seen_ts)
+    except Exception:
+        # Presence is optional; never break user search on errors.
+        pass
 
     return templates.TemplateResponse(
         "users_results.html",

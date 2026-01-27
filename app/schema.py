@@ -1,0 +1,62 @@
+from __future__ import annotations
+
+"""DB schema bootstrap + minimal migrations (SQLite).
+
+This project intentionally avoids Alembic. We keep migrations extremely small:
+- create missing tables
+- add missing columns to `app_settings`
+
+IMPORTANT: this must be callable both from the web app and Celery worker.
+"""
+
+from .db import engine
+from .models import Base
+
+
+def ensure_schema() -> None:
+    """Ensure DB schema is up to date.
+
+    - creates missing tables (create_all)
+    - adds newly introduced columns to app_settings
+    """
+
+    # Create all known tables (including newly added ones)
+    Base.metadata.create_all(bind=engine)
+
+    # Minimal column migrations for SQLite
+    with engine.begin() as conn:
+        cols = [r[1] for r in conn.exec_driver_sql("PRAGMA table_info(app_settings)").fetchall()]
+
+        def add(sql: str) -> None:
+            conn.exec_driver_sql(sql)
+
+        # Remote host logon query settings
+        if "host_query_username" not in cols:
+            add("ALTER TABLE app_settings ADD COLUMN host_query_username VARCHAR(128) NOT NULL DEFAULT ''")
+        if "host_query_password_enc" not in cols:
+            add("ALTER TABLE app_settings ADD COLUMN host_query_password_enc VARCHAR(2048) NOT NULL DEFAULT ''")
+        if "host_query_timeout_s" not in cols:
+            add("ALTER TABLE app_settings ADD COLUMN host_query_timeout_s INTEGER NOT NULL DEFAULT 60")
+
+        # Background network scan settings
+        if "net_scan_enabled" not in cols:
+            add("ALTER TABLE app_settings ADD COLUMN net_scan_enabled BOOLEAN NOT NULL DEFAULT 0")
+        if "net_scan_cidrs" not in cols:
+            add("ALTER TABLE app_settings ADD COLUMN net_scan_cidrs TEXT NOT NULL DEFAULT ''")
+        if "net_scan_interval_min" not in cols:
+            add("ALTER TABLE app_settings ADD COLUMN net_scan_interval_min INTEGER NOT NULL DEFAULT 120")
+        if "net_scan_concurrency" not in cols:
+            add("ALTER TABLE app_settings ADD COLUMN net_scan_concurrency INTEGER NOT NULL DEFAULT 64")
+        if "net_scan_method_timeout_s" not in cols:
+            add("ALTER TABLE app_settings ADD COLUMN net_scan_method_timeout_s INTEGER NOT NULL DEFAULT 20")
+        if "net_scan_probe_timeout_ms" not in cols:
+            add("ALTER TABLE app_settings ADD COLUMN net_scan_probe_timeout_ms INTEGER NOT NULL DEFAULT 350")
+
+        if "net_scan_last_run_ts" not in cols:
+            add("ALTER TABLE app_settings ADD COLUMN net_scan_last_run_ts DATETIME")
+        if "net_scan_last_summary" not in cols:
+            add("ALTER TABLE app_settings ADD COLUMN net_scan_last_summary TEXT NOT NULL DEFAULT ''")
+        if "net_scan_is_running" not in cols:
+            add("ALTER TABLE app_settings ADD COLUMN net_scan_is_running BOOLEAN NOT NULL DEFAULT 0")
+        if "net_scan_run_started_ts" not in cols:
+            add("ALTER TABLE app_settings ADD COLUMN net_scan_run_started_ts DATETIME")

@@ -116,6 +116,87 @@
             </div>
           </div>
 
+          <hr class="my-4">
+
+          <h2 class="h6 mb-3">Фоновое сканирование сети (последний хост)</h2>
+          <div class="row g-3">
+            <div class="col-12">
+              <div class="form-check">
+                <input
+                  class="form-check-input"
+                  type="checkbox"
+                  id="net_scan_enabled"
+                  name="net_scan_enabled"
+                  {% if st.net_scan_enabled %}checked{% endif %}
+                >
+                <label class="form-check-label" for="net_scan_enabled">
+                  Включить периодический поиск: где какой пользователь залогинен
+                </label>
+              </div>
+              <div class="form-text">
+                Укажите CIDR-сети и интервал. Результат будет добавляться в карточку пользователя при поиске.
+              </div>
+            </div>
+
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">Интервал (минут)</label>
+              <input class="form-control" name="net_scan_interval_min" type="number" min="30" max="1440" value="{{ st.net_scan_interval_min or 120 }}">
+              <div class="form-text">Рекомендуемо: 120 минут.</div>
+            </div>
+
+            <div class="col-12">
+              <label class="form-label fw-semibold">Диапазоны (CIDR), по одному в строке</label>
+              <textarea class="form-control" name="net_scan_cidrs" rows="4" placeholder="192.168.66.0/24&#10;192.168.67.0/24">{{ st.net_scan_cidrs or '' }}</textarea>
+              <div class="form-text">
+                Пример: <code>192.168.66.0/24</code>. Пустые строки и комментарии (<code>#</code>, <code>;</code>) игнорируются.
+              </div>
+            </div>
+
+            <div class="col-12">
+              <details>
+                <summary class="small">Дополнительно (необязательно)</summary>
+                <div class="row g-3 mt-2">
+                  <div class="col-md-4">
+                    <label class="form-label fw-semibold">Параллелизм</label>
+                    <input class="form-control" name="net_scan_concurrency" type="number" min="4" max="256" value="{{ st.net_scan_concurrency or 64 }}">
+                    <div class="form-text">Сколько хостов опрашивать одновременно.</div>
+                  </div>
+                  <div class="col-md-4">
+                    <label class="form-label fw-semibold">Timeout на хост (сек.)</label>
+                    <input class="form-control" name="net_scan_method_timeout_s" type="number" min="5" max="60" value="{{ st.net_scan_method_timeout_s or 20 }}">
+                    <div class="form-text">Лимит на каждый метод (WinRM/WMI/SMB) при фоне.</div>
+                  </div>
+                  <div class="col-md-4">
+                    <label class="form-label fw-semibold">Проба порта (мс)</label>
+                    <input class="form-control" name="net_scan_probe_timeout_ms" type="number" min="100" max="1500" value="{{ st.net_scan_probe_timeout_ms or 350 }}">
+                    <div class="form-text">Быстрая проверка (445/5985/5986/135), чтобы пропускать не-Windows.</div>
+                  </div>
+                </div>
+              </details>
+            </div>
+
+            <div class="col-12">
+              <div class="d-flex flex-column flex-sm-row gap-2 align-items-start">
+                <button
+                  type="button"
+                  class="btn btn-outline-secondary"
+                  hx-post="/settings/net_scan/run"
+                  hx-target="#net-scan-run-result"
+                  hx-swap="innerHTML"
+                >
+                  Запустить сканирование сейчас
+                </button>
+                <div id="net-scan-run-result" class="flex-grow-1"></div>
+              </div>
+              {% if st.net_scan_last_run_ts or st.net_scan_last_summary %}
+                <div class="small text-secondary mt-2">
+                  <div><span class="fw-semibold">Последний запуск:</span> {{ st.net_scan_last_run_ts or '—' }}</div>
+                  <div><span class="fw-semibold">Результат:</span> {{ st.net_scan_last_summary or '—' }}</div>
+                </div>
+              {% endif %}
+            </div>
+          </div>
+
           <div class="mt-3 d-flex flex-column flex-sm-row gap-2">
             <button
               type="button"

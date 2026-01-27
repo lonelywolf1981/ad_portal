@@ -40,6 +40,21 @@ services:
     networks:
       - adnet
 
+  beat:
+    build: .
+    container_name: ad_portal_beat
+    env_file:
+      - .env
+    depends_on:
+      - redis
+    command: ["celery", "-A", "app.celery_app:celery_app", "beat", "-l", "INFO"]
+    volumes:
+      - ./data:/app/data
+    dns:
+      - 192.168.66.11
+    networks:
+      - adnet
+
   nginx:
     image: nginx:1.27-alpine
     container_name: ad_portal_nginx

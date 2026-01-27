@@ -23,6 +23,21 @@
                       e-mail: <a href="mailto:{{ u.email }}">{{ u.email }}</a>
                     {% endif %}
                   </div>
+
+                  {% if u.found_host or u.found_ip %}
+                    <div class="small text-secondary mt-1">
+                      <span class="fw-semibold">Найден на:</span>
+                      {% if u.found_host %}
+                        <span class="badge text-bg-secondary">{{ u.found_host }}</span>
+                      {% endif %}
+                      {% if u.found_ip %}
+                        <span class="badge text-bg-light border text-dark">{{ u.found_ip }}</span>
+                      {% endif %}
+                      {% if u.found_ts %}
+                        <span class="ms-1">• {{ u.found_ts }}</span>
+                      {% endif %}
+                    </div>
+                  {% endif %}
                 </div>
                 <div class="flex-shrink-0 d-grid d-sm-block">
                   <button
