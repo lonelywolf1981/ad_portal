@@ -321,7 +321,34 @@ def index(request: Request):
         if e.status_code == status.HTTP_401_UNAUTHORIZED:
             return RedirectResponse(url="/login", status_code=303)
         raise
-    return templates.TemplateResponse("index.html", {"request": request, "user": user})
+    net_scan_last_run = ""
+    net_scan_last_summary = ""
+    try:
+        with db_session() as db:
+            st = get_or_create_settings(db)
+            dt = getattr(st, "net_scan_last_run_ts", None)
+            if dt:
+                try:
+                    net_scan_last_run = dt.isoformat(sep=" ", timespec="microseconds")
+                except TypeError:
+                    # Python < 3.11 or older datetime without timespec
+                    net_scan_last_run = dt.isoformat(sep=" ")
+                except Exception:
+                    net_scan_last_run = str(dt)
+            net_scan_last_summary = (getattr(st, "net_scan_last_summary", "") or "").strip()
+    except Exception:
+        # do not fail the main page if settings schema is missing
+        pass
+
+    return templates.TemplateResponse(
+        "index.html",
+        {
+            "request": request,
+            "user": user,
+            "net_scan_last_run": net_scan_last_run,
+            "net_scan_last_summary": net_scan_last_summary,
+        },
+    )
 
 
 @app.get("/settings", response_class=HTMLResponse)
