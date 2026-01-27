@@ -95,3 +95,21 @@ class UserPresence(Base):
     ip: Mapped[str] = mapped_column(String(64), default="", nullable=False)
     method: Mapped[str] = mapped_column(String(32), default="", nullable=False)
     last_seen_ts: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class HostUserMap(Base):
+    """User ↔ host matches.
+
+    - One host can have multiple users.
+    - A (host, user) pair is stored as a single row (updated on new scans).
+    - Old rows are removed by retention job (see tasks.py).
+    """
+
+    __tablename__ = "host_user_map"
+
+    host: Mapped[str] = mapped_column(String(255), primary_key=True)      # short hostname (lower) or fallback label
+    user_login: Mapped[str] = mapped_column(String(128), primary_key=True)  # normalized login (lower)
+
+    ip: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    method: Mapped[str] = mapped_column(String(32), default="", nullable=False)
+    last_seen_ts: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)

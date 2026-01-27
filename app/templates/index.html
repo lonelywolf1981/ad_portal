@@ -35,6 +35,11 @@
             Кто залогинен на хосте
           </button>
         </li>
+        <li class="nav-item" role="presentation">
+          <button class="nav-link" id="tab-presence" data-bs-toggle="tab" data-bs-target="#pane-presence" type="button" role="tab" aria-controls="pane-presence" aria-selected="false">
+            Сопоставления
+          </button>
+        </li>
       </ul>
 
       <div class="tab-content pt-3" id="mainTabsContent">
@@ -109,6 +114,43 @@
           </div>
 
           <div id="host-logon-results" class="mt-3"></div>
+        </div>
+
+        <div class="tab-pane fade" id="pane-presence" role="tabpanel" aria-labelledby="tab-presence">
+          <h2 class="h6 mb-3">Сопоставления user ↔ host</h2>
+
+          <form
+            class="row g-2 align-items-center"
+            hx-get="/presence/search"
+            hx-target="#presence-results"
+            hx-swap="innerHTML"
+            hx-trigger="submit, keyup changed delay:350ms from:input[name='q']"
+          >
+            <div class="col-md-8">
+              <input
+                type="text"
+                class="form-control"
+                name="q"
+                placeholder="Поиск по имени хоста, IP или логину"
+                autocomplete="off"
+              >
+            </div>
+            <div class="col-md-2 d-grid">
+              <button class="btn btn-primary" type="submit">Найти</button>
+            </div>
+            <div class="col-md-2">
+              <div class="d-flex align-items-center gap-2">
+                <div class="spinner-border spinner-border-sm text-secondary htmx-indicator" role="status" aria-hidden="true"></div>
+                <div class="small text-secondary htmx-indicator">Поиск...</div>
+              </div>
+            </div>
+          </form>
+
+          <div class="small text-secondary mt-2">
+            Данные накапливаются фоновым сканированием. Хранение сопоставлений — 31 день.
+          </div>
+
+          <div id="presence-results" class="mt-3" hx-get="/presence/search" hx-trigger="load" hx-swap="innerHTML"></div>
         </div>
 
       </div>

@@ -29,6 +29,7 @@ from .ad_utils import split_group_dns
 from .ldap_client import ADClient
 from .host_logon import find_logged_on_users
 from .presence import get_presence_map, normalize_login, fmt_dt_ru
+from .mappings import cleanup_host_user_matches, search_host_user_matches
 from .net_scan import parse_cidrs, reverse_dns
 
 ensure_schema()
@@ -711,4 +712,39 @@ def hosts_logon(request: Request, target: str = ""):
             "attempts": attempts,
             "error": "",
         },
+    )
+
+
+@app.get("/presence/search", response_class=HTMLResponse)
+def presence_search(request: Request, q: str = ""):
+    """Поиск по сопоставлениям user ↔ host, накопленным фоновым сканированием."""
+    try:
+        _ = get_current_user(request)
+    except HTTPException as e:
+        if e.status_code == status.HTTP_401_UNAUTHORIZED:
+            return HTMLResponse(content="", status_code=401, headers={"HX-Redirect": "/login"})
+        raise
+
+    q = (q or "").strip()
+    lim = 200 if not q else 500
+
+    with db_session() as db:
+        # Enforce retention even if background scan is paused.
+        cleanup_host_user_matches(db, retention_days=31)
+        rows = search_host_user_matches(db, q=q, limit=lim)
+
+    # Normalize output for template
+    items = [
+        {
+            "host": (r.host or "").strip(),
+            "ip": (r.ip or "").strip(),
+            "login": (r.user_login or "").strip(),
+            "when": fmt_dt_ru(getattr(r, "last_seen_ts", None)),
+        }
+        for r in rows
+    ]
+
+    return templates.TemplateResponse(
+        "presence_results.html",
+        {"request": request, "items": items, "q": q},
     )

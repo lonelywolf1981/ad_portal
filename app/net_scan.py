@@ -170,7 +170,8 @@ class ScanResult:
     queried: int
     users_found: int
     errors: int
-    presence: dict[str, dict]  # login_lower -> {host, ip, method, ts}
+    presence: dict[str, dict]  # login_lower -> {host, ip, method, ts} (last known location per user)
+    matches: list[dict]        # [{host, ip, login, method, ts}] (per host-user pair)
 
 
 # Backward-compatible alias (some versions of tasks.py import this)
@@ -201,6 +202,7 @@ def scan_presence(
             users_found=0,
             errors=1,
             presence={},
+            matches=[],
         )
 
     conc = int(concurrency or 64)
@@ -223,6 +225,8 @@ def scan_presence(
     errors = 0
 
     now = datetime.utcnow()
+
+    matches: list[dict] = []
 
     def work(ip: str) -> tuple[str, list[str], str, str]:
         # returns (ip, users, method, hostname_short)
@@ -266,6 +270,15 @@ def scan_presence(
                             "method": method,
                             "ts": now,
                         }
+                        matches.append(
+                            {
+                                "host": hostname,
+                                "ip": ip2,
+                                "login": key,
+                                "method": method,
+                                "ts": now,
+                            }
+                        )
             except Exception:
                 errors += 1
                 continue
@@ -280,4 +293,5 @@ def scan_presence(
         users_found=users_found,
         errors=errors,
         presence=presence,
+        matches=matches,
     )

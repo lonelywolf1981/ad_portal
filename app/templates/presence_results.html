@@ -1,0 +1,32 @@
+{% if not items or items|length == 0 %}
+  <div class="alert alert-secondary py-2 mb-0">
+    {% if q %}
+      Ничего не найдено.
+    {% else %}
+      Пока нет данных. Дождитесь фонового сканирования или запустите его вручную в «Настройках».
+    {% endif %}
+  </div>
+{% else %}
+  <div class="table-responsive">
+    <table class="table table-sm align-middle mb-0">
+      <thead>
+        <tr class="small text-secondary">
+          <th style="min-width: 220px;">Имя хоста</th>
+          <th style="min-width: 140px;">IP</th>
+          <th style="min-width: 160px;">Логин</th>
+          <th style="min-width: 180px;">Когда обнаружено</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in items %}
+          <tr>
+            <td><span class="fw-semibold">{{ r.host if r.host else "—" }}</span></td>
+            <td class="text-secondary">{{ r.ip if r.ip else "—" }}</td>
+            <td><code>{{ r.login }}</code></td>
+            <td class="text-secondary">{{ r.when if r.when else "—" }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endif %}

@@ -6,6 +6,7 @@ from .celery_app import celery_app
 from .crypto import decrypt_str
 from .net_scan import scan_presence
 from .presence import upsert_presence_bulk
+from .mappings import cleanup_host_user_matches, upsert_host_user_matches
 from .repo import db_session, get_or_create_settings
 from .timezone_utils import format_iso_local
 
@@ -20,8 +21,10 @@ def _utcnow() -> datetime:
 
 
 @celery_app.task(name="app.tasks.maybe_run_network_scan")
-def maybe_run_network_scan() -> dict:
+def maybe_run_network_scan(force: bool = False) -> dict:
     """Runs frequently (Celery Beat). Decides whether a full scan is due and schedules it.
+
+    force=True bypasses interval check (used by the "Run now" button).
 
     Returns a small status dict that ends up in worker logs.
     """
@@ -51,7 +54,7 @@ def maybe_run_network_scan() -> dict:
             interval_min = 10
 
         last = getattr(st, "net_scan_last_run_ts", None)
-        if last and (now - last) < timedelta(minutes=interval_min):
+        if (not force) and last and (now - last) < timedelta(minutes=interval_min):
             next_run = last + timedelta(minutes=interval_min)
             return {
                 "status": "not_due",
@@ -75,7 +78,7 @@ def net_scan_tick() -> dict:
 
 @celery_app.task(name="app.tasks.run_network_scan")
 def run_network_scan() -> dict:
-    """Performs a full scan and updates user_presence + settings status.
+    """Performs a full scan and updates user_presence + host_user_map + settings status.
 
     Always clears lock in DB.
     """
@@ -135,8 +138,29 @@ def run_network_scan() -> dict:
             probe_timeout_ms=probe_ms,
         )
 
+        # Build host-user matches in a backward-compatible way:
+        # - If net_scan.py already provides res.matches, use it.
+        # - Otherwise derive matches from res.presence (login -> {host, ip, method, ts}).
+        matches = getattr(res, "matches", None)
+        if not matches:
+            matches = []
+            for login, data in (res.presence or {}).items():
+                matches.append(
+                    {
+                        "host": (data.get("host") or "").strip(),
+                        "ip": (data.get("ip") or "").strip(),
+                        "login": (login or "").strip(),
+                        "method": (data.get("method") or "").strip(),
+                        "ts": data.get("ts"),
+                    }
+                )
+
         with db_session() as db:
-            updated = upsert_presence_bulk(db, res.presence)
+            updated_users = upsert_presence_bulk(db, res.presence)
+            updated_matches = upsert_host_user_matches(db, matches)
+
+            # Retention: 1 month for host-user pairs
+            deleted_matches = cleanup_host_user_matches(db, retention_days=31)
 
             st = get_or_create_settings(db)
             finished = _utcnow()
@@ -147,7 +171,9 @@ def run_network_scan() -> dict:
                 f"Проверено (после probe): {res.alive}. "
                 f"Пропущено: {skipped}. "
                 f"Ошибок: {res.errors}. "
-                f"Обновлено пользователей: {updated}. "
+                f"Обновлено пользователей: {updated_users}. "
+                f"Обновлено сопоставлений: {updated_matches}. "
+                f"Удалено старых сопоставлений: {deleted_matches}. "
                 f"Длительность: {dur_s} сек."
             )
 
