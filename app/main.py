@@ -28,6 +28,7 @@ from .ad_utils import split_group_dns
 from .ldap_client import ADClient
 from .host_logon import find_logged_on_users
 from .presence import get_presence_map, normalize_login, fmt_dt_ru
+from .net_scan import parse_cidrs, reverse_dns
 
 ensure_schema()
 
@@ -111,6 +112,24 @@ def _fmt_dt_human(v: str) -> str:
         return dt.strftime("%d.%m.%Y %H:%M:%S")
     except Exception:
         return s
+
+
+def _short_hostname(name: str) -> str:
+    s = (name or "").strip().rstrip(".")
+    if not s:
+        return ""
+    return s.split(".", 1)[0]
+
+
+def _looks_like_ipv4(s: str) -> bool:
+    try:
+        import ipaddress
+        ipaddress.ip_address((s or "").strip())
+        return True
+    except Exception:
+        return False
+
+
 
 
 # Оставляем только поля, которые нужны в «Подробнее»
@@ -530,16 +549,50 @@ def users_search(request: Request, q: str = ""):
         })
 
     # Enrich cards with last-known location (from background network scan)
+    # Enrich cards with last-known location (from background network scan)
+    # Show BOTH: short hostname and IP. If hostname was not saved, try PTR via per-subnet DNS (network+1).
     try:
         with db_session() as db:
+            st2 = get_or_create_settings(db)
             pres = get_presence_map(db, [u.get("login", "") for u in users])
+            net_cidrs_text = (getattr(st2, "net_scan_cidrs", "") or "").strip()
+
+        # Prime CIDR cache once for reverse_dns()
+        if net_cidrs_text:
+            try:
+                parse_cidrs(net_cidrs_text)
+            except Exception:
+                net_cidrs_text = ""
+
+        rdns_cache: dict[str, str] = {}
+
         for u in users:
             key = normalize_login(u.get("login", ""))
             p = pres.get(key) if key else None
             if not p:
                 continue
-            u["found_host"] = p.host or ""
-            u["found_ip"] = p.ip or ""
+
+            host_raw = (p.host or "").strip()
+            ip_raw = (p.ip or "").strip()
+
+            # Some earlier data may have stored IP in host field
+            if not ip_raw and host_raw and _looks_like_ipv4(host_raw):
+                ip_raw = host_raw
+                host_raw = ""
+
+            host_short = _short_hostname(host_raw)
+
+            # Backfill hostname via PTR (per-subnet DNS) if only IP is known
+            if not host_short and ip_raw and net_cidrs_text:
+                if ip_raw not in rdns_cache:
+                    try:
+                        rdns_cache[ip_raw] = _short_hostname(reverse_dns(ip_raw, timeout_s=0.8))
+                    except Exception:
+                        rdns_cache[ip_raw] = ""
+                host_short = rdns_cache.get(ip_raw, "")
+
+            u["found_host"] = host_short
+            u["found_ip"] = ip_raw
             u["found_ts"] = fmt_dt_ru(p.last_seen_ts)
     except Exception:
         # Presence is optional; never break user search on errors.

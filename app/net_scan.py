@@ -155,6 +155,13 @@ def reverse_dns(ip: str, timeout_s: float = 0.6) -> str:
             return ""
 
 
+def short_hostname(name: str) -> str:
+    s = (name or "").strip().rstrip(".")
+    if not s:
+        return ""
+    return s.split(".", 1)[0]
+
+
 @dataclass
 class ScanResult:
     total_ips: int
@@ -218,7 +225,7 @@ def scan_presence(
     now = datetime.utcnow()
 
     def work(ip: str) -> tuple[str, list[str], str, str]:
-        # returns (ip, users, method, hostname)
+        # returns (ip, users, method, hostname_short)
         if not quick_probe_any(ip, timeout_ms=probe_timeout_ms):
             return ip, [], "", ""
 
@@ -233,7 +240,7 @@ def scan_presence(
         hostname = ""
         if users:
             # IMPORTANT: use per-subnet DNS PTR (reverse_dns() chooses DNS via cached nets)
-            hostname = reverse_dns(ip, timeout_s=1.0)
+            hostname = short_hostname(reverse_dns(ip, timeout_s=1.0))
         return ip, users, method or "", hostname
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=conc) as ex:
