@@ -744,8 +744,15 @@ def user_details(request: Request, id: str = ""):
 
 
 @app.get("/users/view", response_class=HTMLResponse)
-def user_view(request: Request, id: str = "", login: str = ""):
-    """Full page with AD details. Accepts either id (encoded DN) or login."""
+def user_view(request: Request, id: str = "", login: str = "", modal: int = 0):
+    """Страница/модалка с деталями пользователя из AD.
+
+    - По умолчанию возвращает полноценную страницу.
+    - Если передан modal=1 или запрос сделан через HTMX (HX-Request),
+      возвращает контент для Bootstrap-модалки.
+
+    Принимает либо id (закодированный DN), либо login.
+    """
     try:
         _ = get_current_user(request)
     except HTTPException as e:
@@ -763,12 +770,15 @@ def user_view(request: Request, id: str = "", login: str = ""):
         except Exception:
             dn = ""
 
+    is_modal = bool(modal) or (request.headers.get("HX-Request") is not None)
+    tpl_name = "user_view_modal.html" if is_modal else "user_view.html"
+
     with db_session() as db:
         st = get_or_create_settings(db)
         cfg = ad_cfg_from_settings(st)
         if not cfg:
             return templates.TemplateResponse(
-                "user_view.html",
+                tpl_name,
                 {"request": request, "items": [], "error": "AD не настроен.", "caption": ""},
             )
 
@@ -787,27 +797,27 @@ def user_view(request: Request, id: str = "", login: str = ""):
                 dn = (items[0].get("dn") or "").strip()
         if not dn:
             return templates.TemplateResponse(
-                "user_view.html",
+                tpl_name,
                 {"request": request, "items": [], "error": msg or "Пользователь не найден.", "caption": login},
             )
 
     if not dn:
         return templates.TemplateResponse(
-            "user_view.html",
+            tpl_name,
             {"request": request, "items": [], "error": "Не задан пользователь.", "caption": ""},
         )
 
     ok, msg, details = client.get_user_details(dn)
     if not ok:
         return templates.TemplateResponse(
-            "user_view.html",
+            tpl_name,
             {"request": request, "items": [], "error": msg or "Не удалось получить данные из AD.", "caption": login or dn},
         )
 
     caption = (details.get("displayName") or "").strip() or (details.get("cn") or "").strip() or (login or "").strip() or dn
     items2 = _build_detail_items(details)
     return templates.TemplateResponse(
-        "user_view.html",
+        tpl_name,
         {"request": request, "items": items2, "error": "", "caption": caption},
     )
 

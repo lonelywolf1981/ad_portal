@@ -162,4 +162,29 @@
       </div>
     </div>
   </div>
+
+  {# User details modal (filled via HTMX) #}
+  <div class="modal fade" id="userModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+      <div class="modal-content" id="userModalContent">
+        <div class="modal-body">
+          <div class="small text-secondary">Загрузка…</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // When HTMX swaps modal content, show the Bootstrap modal.
+    document.body.addEventListener('htmx:afterSwap', function (evt) {
+      var tgt = evt.detail && evt.detail.target;
+      if (!tgt) return;
+      if (tgt.id === 'userModalContent') {
+        var el = document.getElementById('userModal');
+        if (!el || !window.bootstrap) return;
+        var m = bootstrap.Modal.getOrCreateInstance(el);
+        m.show();
+      }
+    });
+  </script>
 {% endblock %}

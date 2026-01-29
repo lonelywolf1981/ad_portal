@@ -18,9 +18,7 @@
                   <div class="fw-semibold">{{ u.fio }}</div>
                   <div class="small text-secondary">
                     Логин:
-                    <a class="link-underline link-underline-opacity-0" href="/users/view?id={{ u.id }}">
-                      <code>{{ u.login }}</code>
-                    </a>
+                    <span class="text-danger"><code>{{ u.login }}</code></span>
                     {% if u.email %}
                       <span class="mx-1">•</span>
                       e-mail: <a href="mailto:{{ u.email }}">{{ u.email }}</a>

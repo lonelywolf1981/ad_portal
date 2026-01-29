@@ -31,9 +31,14 @@
             </td>
             <td>
               {% if r.login %}
-                <a class="link-underline link-underline-opacity-0" href="/users/view?login={{ r.login|urlencode }}">
-                  <code>{{ r.login }}</code>
-                </a>
+                <a
+                  href="#"
+                  class="link-underline link-underline-opacity-0"
+                  hx-get="/users/view?login={{ r.login|urlencode }}&modal=1"
+                  hx-target="#userModalContent"
+                  hx-swap="innerHTML"
+                  onclick="return false;"
+                ><code>{{ r.login }}</code></a>
               {% else %}
                 <span class="text-secondary">—</span>
               {% endif %}

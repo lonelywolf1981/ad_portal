@@ -1,0 +1,22 @@
+{# Modal content for /users/view (HTMX) #}
+<div class="modal-header">
+  <div>
+    <h1 class="modal-title fs-6 mb-0">Пользователь</h1>
+    {% if caption %}
+      <div class="small text-secondary">{{ caption }}</div>
+    {% endif %}
+  </div>
+  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+</div>
+
+<div class="modal-body">
+  {% if error %}
+    <div class="alert alert-danger py-2 mb-0">{{ error }}</div>
+  {% else %}
+    {% include "user_details.html" %}
+  {% endif %}
+</div>
+
+<div class="modal-footer">
+  <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Закрыть</button>
+</div>
