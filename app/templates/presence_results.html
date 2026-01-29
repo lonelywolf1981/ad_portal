@@ -11,10 +11,30 @@
     <table class="table table-sm align-middle mb-0">
       <thead>
         <tr class="small text-secondary">
-          <th style="min-width: 220px;">Имя хоста</th>
-          <th style="min-width: 140px;">IP</th>
-          <th style="min-width: 160px;">Логин</th>
-          <th style="min-width: 180px;">Когда обнаружено</th>
+          {% set _q = q or '' %}
+          {% set _sort = sort or 'when' %}
+          {% set _dir = dir or 'desc' %}
+
+          {% macro sort_link(label, field) -%}
+            {%- set next_dir = 'desc' if _sort != field else ('asc' if _dir == 'desc' else 'desc') -%}
+            {%- set arrow = '' -%}
+            {%- if _sort == field -%}
+              {%- set arrow = ' ▼' if _dir == 'desc' else ' ▲' -%}
+            {%- endif -%}
+            <a
+              href="#"
+              class="link-underline link-underline-opacity-0 text-secondary"
+              hx-get="/presence/search?q={{ _q|urlencode }}&sort={{ field }}&dir={{ next_dir }}"
+              hx-target="#presence-results"
+              hx-swap="innerHTML"
+              onclick="return false;"
+            >{{ label }}{{ arrow }}</a>
+          {%- endmacro %}
+
+          <th style="min-width: 220px;">{{ sort_link('Имя хоста', 'host') }}</th>
+          <th style="min-width: 140px;">{{ sort_link('IP', 'ip') }}</th>
+          <th style="min-width: 160px;">{{ sort_link('Логин', 'login') }}</th>
+          <th style="min-width: 180px;">{{ sort_link('Когда обнаружено', 'when') }}</th>
         </tr>
       </thead>
       <tbody>
@@ -49,4 +69,7 @@
       </tbody>
     </table>
   </div>
+
+  {# Экспортная ссылка по умолчанию синхронизируется через oninput в форме (по q).
+     Параметры sort/dir поддерживаются эндпоинтом /presence/export.xlsx при необходимости. #}
 {% endif %}

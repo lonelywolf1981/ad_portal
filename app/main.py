@@ -10,6 +10,7 @@ import base64
 from datetime import datetime, timezone
 import io
 import re
+import ipaddress
 
 from openpyxl import Workbook
 
@@ -161,6 +162,35 @@ def _subnet_badge_class(subnet_key: str) -> str:
     ]
     idx = (sum(subnet_key.encode("utf-8")) % len(variants))
     return variants[idx]
+
+
+_NAT_SPLIT_RE = re.compile(r"(\d+)")
+
+
+def _natural_key(s: str) -> list:
+    """Human-friendly sort key: A2 < A10, case-insensitive."""
+    s = (s or "").strip()
+    if not s:
+        return [""]
+    parts = _NAT_SPLIT_RE.split(s)
+    out: list = []
+    for p in parts:
+        if p == "":
+            continue
+        if p.isdigit():
+            # compare numbers numerically
+            out.append(int(p))
+        else:
+            out.append(p.casefold())
+    return out
+
+
+def _ip_key(ip: str) -> tuple:
+    s = (ip or "").strip()
+    try:
+        return (0, int(ipaddress.IPv4Address(s)))
+    except Exception:
+        return (1, s.casefold())
 
 
 
@@ -870,7 +900,7 @@ def hosts_logon(request: Request, target: str = ""):
 
 
 @app.get("/presence/search", response_class=HTMLResponse)
-def presence_search(request: Request, q: str = ""):
+def presence_search(request: Request, q: str = "", sort: str = "when", dir: str = "desc"):
     """Поиск по сопоставлениям user ↔ host, накопленным фоновым сканированием."""
     try:
         _ = get_current_user(request)
@@ -880,12 +910,39 @@ def presence_search(request: Request, q: str = ""):
         raise
 
     q = (q or "").strip()
+    sort = (sort or "when").strip().lower()
+    dir = (dir or "desc").strip().lower()
+    if sort not in {"host", "ip", "login", "when"}:
+        sort = "when"
+    if dir not in {"asc", "desc"}:
+        dir = "desc"
     lim = 200 if not q else 500
 
     with db_session() as db:
         # Enforce retention even if background scan is paused.
         cleanup_host_user_matches(db, retention_days=31)
         rows = search_host_user_matches(db, q=q, limit=lim)
+
+    # Human-friendly sorting (A2 < A10), with numeric sort for IPs
+    reverse = (dir == "desc")
+
+    def _row_key(r):
+        if sort == "host":
+            return _natural_key(_short_hostname(getattr(r, "host", "")))
+        if sort == "ip":
+            return _ip_key(getattr(r, "ip", ""))
+        if sort == "login":
+            return _natural_key(getattr(r, "user_login", ""))
+        # when
+        dt = getattr(r, "last_seen_ts", None)
+        # None goes last regardless of direction
+        return (dt is None, dt)
+
+    try:
+        rows = sorted(rows, key=_row_key, reverse=reverse)
+    except Exception:
+        # If anything unexpected happens, keep DB order
+        pass
 
     # Normalize output for template
     items = []
@@ -905,12 +962,12 @@ def presence_search(request: Request, q: str = ""):
 
     return templates.TemplateResponse(
         "presence_results.html",
-        {"request": request, "items": items, "q": q},
+        {"request": request, "items": items, "q": q, "sort": sort, "dir": dir},
     )
 
 
 @app.get("/presence/export.xlsx")
-def presence_export_xlsx(request: Request, q: str = ""):
+def presence_export_xlsx(request: Request, q: str = "", sort: str = "when", dir: str = "desc"):
     """Download current presence search result as an .xlsx."""
     try:
         _ = get_current_user(request)
@@ -920,11 +977,34 @@ def presence_export_xlsx(request: Request, q: str = ""):
         raise
 
     q = (q or "").strip()
+    sort = (sort or "when").strip().lower()
+    dir = (dir or "desc").strip().lower()
+    if sort not in {"host", "ip", "login", "when"}:
+        sort = "when"
+    if dir not in {"asc", "desc"}:
+        dir = "desc"
     lim = 200 if not q else 500
 
     with db_session() as db:
         cleanup_host_user_matches(db, retention_days=31)
         rows = search_host_user_matches(db, q=q, limit=lim)
+
+    reverse = (dir == "desc")
+
+    def _row_key(r):
+        if sort == "host":
+            return _natural_key(_short_hostname(getattr(r, "host", "")))
+        if sort == "ip":
+            return _ip_key(getattr(r, "ip", ""))
+        if sort == "login":
+            return _natural_key(getattr(r, "user_login", ""))
+        dt = getattr(r, "last_seen_ts", None)
+        return (dt is None, dt)
+
+    try:
+        rows = sorted(rows, key=_row_key, reverse=reverse)
+    except Exception:
+        pass
 
     wb = Workbook()
     ws = wb.active
