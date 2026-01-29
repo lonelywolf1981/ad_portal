@@ -21,8 +21,23 @@
         {% for r in items %}
           <tr>
             <td><span class="fw-semibold">{{ r.host if r.host else "—" }}</span></td>
-            <td class="text-secondary">{{ r.ip if r.ip else "—" }}</td>
-            <td><code>{{ r.login }}</code></td>
+            <td>
+              {% if r.ip %}
+                {# выделяем сам IP цветом подсети, подсеть текстом не показываем #}
+                <span class="badge {{ r.subnet_class }}">{{ r.ip }}</span>
+              {% else %}
+                <span class="text-secondary">—</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if r.login %}
+                <a class="link-underline link-underline-opacity-0" href="/users/view?login={{ r.login|urlencode }}">
+                  <code>{{ r.login }}</code>
+                </a>
+              {% else %}
+                <span class="text-secondary">—</span>
+              {% endif %}
+            </td>
             <td class="text-secondary">{{ r.when if r.when else "—" }}</td>
           </tr>
         {% endfor %}

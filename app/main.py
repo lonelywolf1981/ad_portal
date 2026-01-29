@@ -3,12 +3,15 @@ from __future__ import annotations
 from .timezone_utils import format_iso_local
 
 from fastapi import FastAPI, Request, Form, HTTPException, status
-from fastapi.responses import RedirectResponse, HTMLResponse
+from fastapi.responses import RedirectResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 import base64
 from datetime import datetime, timezone
+import io
 import re
+
+from openpyxl import Workbook
 
 from sqlalchemy import text
 
@@ -130,6 +133,34 @@ def _looks_like_ipv4(s: str) -> bool:
         return True
     except Exception:
         return False
+
+
+def _ip_subnet_key(ip: str) -> str:
+    """Return a coarse subnet key for badge grouping (default: /24)."""
+    s = (ip or "").strip()
+    if not _looks_like_ipv4(s):
+        return ""
+    parts = s.split(".")
+    if len(parts) != 4:
+        return ""
+    return ".".join(parts[:3]) + ".0/24"
+
+
+def _subnet_badge_class(subnet_key: str) -> str:
+    """Stable mapping subnet -> Bootstrap badge class."""
+    if not subnet_key:
+        return "text-bg-light border text-dark"
+    variants = [
+        "text-bg-primary",
+        "text-bg-success",
+        "text-bg-warning text-dark",
+        "text-bg-danger",
+        "text-bg-info text-dark",
+        "text-bg-secondary",
+        "text-bg-dark",
+    ]
+    idx = (sum(subnet_key.encode("utf-8")) % len(variants))
+    return variants[idx]
 
 
 
@@ -325,13 +356,20 @@ def index(request: Request):
         raise
     net_scan_last_run = ""
     net_scan_last_summary = ""
+    net_scan_last_token = ""
+    net_scan_is_running = False
     try:
         with db_session() as db:
             st = get_or_create_settings(db)
             dt = getattr(st, "net_scan_last_run_ts", None)
             if dt:
                 net_scan_last_run = format_iso_local(dt, timespec="microseconds")
+                try:
+                    net_scan_last_token = dt.isoformat(timespec="seconds")
+                except Exception:
+                    net_scan_last_token = str(dt)
             net_scan_last_summary = (getattr(st, "net_scan_last_summary", "") or "").strip()
+            net_scan_is_running = bool(getattr(st, "net_scan_is_running", False))
     except Exception:
         # do not fail the main page if settings schema is missing
         pass
@@ -343,8 +381,45 @@ def index(request: Request):
             "user": user,
             "net_scan_last_run": net_scan_last_run,
             "net_scan_last_summary": net_scan_last_summary,
+            "net_scan_last_token": net_scan_last_token,
+            "net_scan_is_running": net_scan_is_running,
         },
     )
+
+
+@app.get("/net-scan/poll", response_class=HTMLResponse)
+def net_scan_poll(request: Request, last: str = ""):
+    """HTMX poll endpoint: triggers full page reload when a new scan finishes."""
+    try:
+        _ = get_current_user(request)
+    except HTTPException as e:
+        if e.status_code == status.HTTP_401_UNAUTHORIZED:
+            return HTMLResponse(content="", status_code=401, headers={"HX-Redirect": "/login"})
+        raise
+
+    last = (last or "").strip()
+    cur_token = ""
+    is_running = False
+    try:
+        with db_session() as db:
+            st = get_or_create_settings(db)
+            dt = getattr(st, "net_scan_last_run_ts", None)
+            if dt:
+                try:
+                    cur_token = dt.isoformat(timespec="seconds")
+                except Exception:
+                    cur_token = str(dt)
+            is_running = bool(getattr(st, "net_scan_is_running", False))
+    except Exception:
+        pass
+
+    should_reload = bool(cur_token and last and (cur_token != last) and (not is_running))
+    html = (
+        f"<div id='net-scan-poll' hx-get='/net-scan/poll?last={cur_token}' hx-trigger='every 10s' hx-swap='outerHTML'>"
+        f"{'<script>window.location.reload();</script>' if should_reload else ''}"
+        f"</div>"
+    )
+    return HTMLResponse(content=html, status_code=200)
 
 
 @app.get("/settings", response_class=HTMLResponse)
@@ -668,6 +743,75 @@ def user_details(request: Request, id: str = ""):
     )
 
 
+@app.get("/users/view", response_class=HTMLResponse)
+def user_view(request: Request, id: str = "", login: str = ""):
+    """Full page with AD details. Accepts either id (encoded DN) or login."""
+    try:
+        _ = get_current_user(request)
+    except HTTPException as e:
+        if e.status_code == status.HTTP_401_UNAUTHORIZED:
+            return RedirectResponse(url="/login", status_code=303)
+        raise
+
+    id = (id or "").strip()
+    login = (login or "").strip()
+
+    dn = ""
+    if id:
+        try:
+            dn = _id_to_dn(id)
+        except Exception:
+            dn = ""
+
+    with db_session() as db:
+        st = get_or_create_settings(db)
+        cfg = ad_cfg_from_settings(st)
+        if not cfg:
+            return templates.TemplateResponse(
+                "user_view.html",
+                {"request": request, "items": [], "error": "AD не настроен.", "caption": ""},
+            )
+
+    client = ADClient(cfg)
+
+    if not dn and login:
+        ok, msg, items = client.search_users(login, limit=8)
+        if ok:
+            lo = login.lower()
+            for it in items:
+                lg = (it.get("login") or "").strip().lower()
+                if lg == lo:
+                    dn = (it.get("dn") or "").strip()
+                    break
+            if not dn and items:
+                dn = (items[0].get("dn") or "").strip()
+        if not dn:
+            return templates.TemplateResponse(
+                "user_view.html",
+                {"request": request, "items": [], "error": msg or "Пользователь не найден.", "caption": login},
+            )
+
+    if not dn:
+        return templates.TemplateResponse(
+            "user_view.html",
+            {"request": request, "items": [], "error": "Не задан пользователь.", "caption": ""},
+        )
+
+    ok, msg, details = client.get_user_details(dn)
+    if not ok:
+        return templates.TemplateResponse(
+            "user_view.html",
+            {"request": request, "items": [], "error": msg or "Не удалось получить данные из AD.", "caption": login or dn},
+        )
+
+    caption = (details.get("displayName") or "").strip() or (details.get("cn") or "").strip() or (login or "").strip() or dn
+    items2 = _build_detail_items(details)
+    return templates.TemplateResponse(
+        "user_view.html",
+        {"request": request, "items": items2, "error": "", "caption": caption},
+    )
+
+
 @app.get("/hosts/logon", response_class=HTMLResponse)
 def hosts_logon(request: Request, target: str = ""):
     """Определить, какой пользователь(и) залогинен на удалённом хосте."""
@@ -734,17 +878,76 @@ def presence_search(request: Request, q: str = ""):
         rows = search_host_user_matches(db, q=q, limit=lim)
 
     # Normalize output for template
-    items = [
-        {
-            "host": (r.host or "").strip(),
-            "ip": (r.ip or "").strip(),
-            "login": (r.user_login or "").strip(),
-            "when": fmt_dt_ru(getattr(r, "last_seen_ts", None)),
-        }
-        for r in rows
-    ]
+    items = []
+    for r in rows:
+        ip = (r.ip or "").strip()
+        subnet = _ip_subnet_key(ip)
+        items.append(
+            {
+                "host": (r.host or "").strip(),
+                "ip": ip,
+                "subnet": subnet,
+                "subnet_class": _subnet_badge_class(subnet),
+                "login": (r.user_login or "").strip(),
+                "when": fmt_dt_ru(getattr(r, "last_seen_ts", None)),
+            }
+        )
 
     return templates.TemplateResponse(
         "presence_results.html",
         {"request": request, "items": items, "q": q},
+    )
+
+
+@app.get("/presence/export.xlsx")
+def presence_export_xlsx(request: Request, q: str = ""):
+    """Download current presence search result as an .xlsx."""
+    try:
+        _ = get_current_user(request)
+    except HTTPException as e:
+        if e.status_code == status.HTTP_401_UNAUTHORIZED:
+            return RedirectResponse(url="/login", status_code=303)
+        raise
+
+    q = (q or "").strip()
+    lim = 200 if not q else 500
+
+    with db_session() as db:
+        cleanup_host_user_matches(db, retention_days=31)
+        rows = search_host_user_matches(db, q=q, limit=lim)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Сопоставления"
+
+    headers = ["Имя хоста", "IP", "Логин", "Когда обнаружено"]
+    ws.append(headers)
+    for cell in ws[1]:
+        cell.font = cell.font.copy(bold=True)
+
+    for r in rows:
+        ws.append([
+            (r.host or "").strip() or "—",
+            (r.ip or "").strip() or "—",
+            (r.user_login or "").strip() or "",
+            fmt_dt_ru(getattr(r, "last_seen_ts", None)) or "—",
+        ])
+
+    # Basic column widths
+    widths = [26, 18, 22, 22]
+    for i, w in enumerate(widths, start=1):
+        ws.column_dimensions[chr(ord('A') + i - 1)].width = w
+
+    bio = io.BytesIO()
+    wb.save(bio)
+    bio.seek(0)
+
+    filename = "presence.xlsx"
+    headers = {
+        "Content-Disposition": f"attachment; filename=\"{filename}\""
+    }
+    return StreamingResponse(
+        bio,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=headers,
     )
