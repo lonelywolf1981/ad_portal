@@ -1,6 +1,6 @@
 {% extends "base_app.html" %}
 {% block content %}
-  <div id="net-scan-poll" hx-get="/net-scan/poll?last={{ net_scan_last_token }}" hx-trigger="every 10s" hx-swap="outerHTML"></div>
+  <div id="net-scan-poll"  class="d-none" hx-get="/net-scan/poll?last={{ net_scan_last_token }}" hx-trigger="load, every 10s" hx-swap="outerHTML"></div>
 
   <div class="card shadow-sm">
     <div class="card-body">
