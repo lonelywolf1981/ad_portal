@@ -4,7 +4,7 @@ from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from ..ad_utils import split_group_dns
-from ..deps import require_settings_access
+from ..deps import require_session_or_hx_redirect
 from ..repo import db_session, get_or_create_settings
 from ..services import (
     ad_test_and_load_groups,
@@ -21,7 +21,16 @@ router = APIRouter()
 
 @router.get("/settings", response_class=HTMLResponse)
 def settings_page(request: Request, saved: int = 0):
-    user = require_settings_access(request)
+    auth = require_session_or_hx_redirect(request)
+    if not isinstance(auth, dict):
+        return auth
+
+    user = auth
+    if not user.get("settings", False):
+        return HTMLResponse(
+            content="<div class='container py-4'><div class='alert alert-danger'>Доступ запрещён.</div></div>",
+            status_code=403,
+        )
     with db_session() as db:
         st = get_or_create_settings(db)
 
@@ -85,7 +94,14 @@ def settings_save(
     allowed_app_group_dns: list[str] = Form([]),
     allowed_settings_group_dns: list[str] = Form([]),
 ):
-    _ = require_settings_access(request)
+    auth = require_session_or_hx_redirect(request)
+    if not isinstance(auth, dict):
+        return auth
+    if not auth.get("settings", False):
+        return HTMLResponse(
+            content="<div class='container py-4'><div class='alert alert-danger'>Доступ запрещён.</div></div>",
+            status_code=403,
+        )
 
     with db_session() as db:
         st = get_or_create_settings(db)
@@ -127,7 +143,14 @@ def settings_ad_test(
     host_query_password: str = Form(""),
     host_query_timeout_s: int = Form(60),
 ):
-    _ = require_settings_access(request)
+    auth = require_session_or_hx_redirect(request)
+    if not isinstance(auth, dict):
+        return auth
+    if not auth.get("settings", False):
+        return HTMLResponse(
+            content="<div class='alert alert-danger py-2 mb-3'>Доступ запрещён.</div>",
+            status_code=403,
+        )
 
     with db_session() as db:
         st = get_or_create_settings(db)
@@ -185,7 +208,14 @@ def settings_ad_test(
 
 @router.post("/settings/net_scan/run", response_class=HTMLResponse)
 def settings_net_scan_run(request: Request):
-    _ = require_settings_access(request)
+    auth = require_session_or_hx_redirect(request)
+    if not isinstance(auth, dict):
+        return auth
+    if not auth.get("settings", False):
+        return HTMLResponse(
+            content="<div class='alert alert-danger py-2 mb-0'>Доступ запрещён.</div>",
+            status_code=403,
+        )
 
     with db_session() as db:
         st = get_or_create_settings(db)
