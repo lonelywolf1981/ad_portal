@@ -14,7 +14,6 @@ from ..utils.net import looks_like_ipv4, short_hostname
 from ..viewmodels.user_details import build_detail_items
 from ..webui import templates
 
-
 router = APIRouter()
 
 
@@ -72,11 +71,13 @@ def users_search(request: Request, q: str = ""):
             pres = get_presence_map(db, [u.get("login", "") for u in users])
             net_cidrs_text = (getattr(st2, "net_scan_cidrs", "") or "").strip()
 
-        # Prime CIDR cache once for reverse_dns()
+        # Этап 3: вместо глобального _LAST_NETS — явный контекст сетей.
+        nets = []
         if net_cidrs_text:
             try:
-                parse_cidrs(net_cidrs_text)
+                nets = parse_cidrs(net_cidrs_text)
             except Exception:
+                nets = []
                 net_cidrs_text = ""
 
         rdns_cache: dict[str, str] = {}
@@ -98,10 +99,12 @@ def users_search(request: Request, q: str = ""):
             host_short = short_hostname(host_raw)
 
             # Backfill hostname via PTR (per-subnet DNS) if only IP is known
-            if not host_short and ip_raw and net_cidrs_text:
+            if not host_short and ip_raw and nets:
                 if ip_raw not in rdns_cache:
                     try:
-                        rdns_cache[ip_raw] = short_hostname(reverse_dns(ip_raw, timeout_s=0.8))
+                        rdns_cache[ip_raw] = short_hostname(
+                            reverse_dns(ip_raw, nets=nets, timeout_s=0.8)
+                        )
                     except Exception:
                         rdns_cache[ip_raw] = ""
                 host_short = rdns_cache.get(ip_raw, "")
@@ -181,6 +184,8 @@ def user_view(request: Request, id: str = "", login: str = "", modal: int = 0):
         except Exception:
             dn = ""
 
+    # ВАЖНО: именно этот выбор шаблона нужен для модалки из архива:
+    # app/templates/user_view_modal.html
     is_modal = bool(modal) or (request.headers.get("HX-Request") is not None)
     tpl_name = "user_view_modal.html" if is_modal else "user_view.html"
 

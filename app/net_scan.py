@@ -5,7 +5,7 @@ import ipaddress
 import socket
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Iterable, Optional
+from typing import Iterable
 
 from .host_logon import find_logged_on_users
 from .presence import normalize_login
@@ -15,8 +15,18 @@ from .utils.tcp_probe import tcp_probe_any
 
 PROBE_PORTS = (445, 5985, 5986, 135)
 
-# Cache last-parsed CIDRs so reverse_dns(ip) can pick the "right" DNS per subnet
-_LAST_NETS: list[ipaddress.IPv4Network] = []
+# Shared executor for slow/blocking system resolver calls.
+# Creating a ThreadPoolExecutor per reverse_dns() call is expensive and creates
+# unnecessary threads under load.
+_RDNS_EXECUTOR: concurrent.futures.ThreadPoolExecutor | None = None
+
+
+def _get_rdns_executor() -> concurrent.futures.ThreadPoolExecutor:
+    global _RDNS_EXECUTOR
+    if _RDNS_EXECUTOR is None:
+        # Keep this small: reverse DNS fallback should not starve the main scan pool.
+        _RDNS_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=8)
+    return _RDNS_EXECUTOR
 
 
 def quick_probe_any(host: str, timeout_ms: int = 350) -> bool:
@@ -46,10 +56,6 @@ def parse_cidrs(raw: str) -> list[ipaddress.IPv4Network]:
             continue
         if isinstance(net, ipaddress.IPv4Network):
             out.append(net)
-
-    # cache for reverse_dns(ip) usage
-    global _LAST_NETS
-    _LAST_NETS = out
     return out
 
 
@@ -110,10 +116,10 @@ def reverse_dns_via_server(ip: str, dns_server: str, timeout_s: float = 1.0) -> 
         return ""
 
 
-def reverse_dns(ip: str, timeout_s: float = 0.6) -> str:
+def reverse_dns(ip: str, *, nets: Iterable[ipaddress.IPv4Network] | None = None, timeout_s: float = 0.6) -> str:
     """
     Best-effort hostname resolution.
-    1) If we have cached CIDRs (parse_cidrs was called), tries PTR via per-subnet DNS (network+1).
+    1) If CIDRs are provided, tries PTR via per-subnet DNS (network+1).
     2) Fallback: socket.gethostbyaddr (system resolver), with strict timeout.
     """
     ip = (ip or "").strip()
@@ -122,8 +128,8 @@ def reverse_dns(ip: str, timeout_s: float = 0.6) -> str:
 
     # First try: direct PTR via subnet DNS
     try:
-        if _LAST_NETS:
-            dns_srv = _dns_server_for_ip(ip, _LAST_NETS)
+        if nets:
+            dns_srv = _dns_server_for_ip(ip, nets)
             if dns_srv:
                 name = reverse_dns_via_server(ip, dns_srv, timeout_s=max(0.2, float(timeout_s)))
                 if name:
@@ -139,12 +145,12 @@ def reverse_dns(ip: str, timeout_s: float = 0.6) -> str:
         except Exception:
             return ""
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-        fut = ex.submit(_do)
-        try:
-            return fut.result(timeout=max(0.2, float(timeout_s)))
-        except Exception:
-            return ""
+    ex = _get_rdns_executor()
+    fut = ex.submit(_do)
+    try:
+        return fut.result(timeout=max(0.2, float(timeout_s)))
+    except Exception:
+        return ""
 
 
 def short_hostname(name: str) -> str:
@@ -211,60 +217,59 @@ def scan_presence(
 
     matches: list[dict] = []
 
-    def work(ip: str) -> tuple[str, list[str], str, str]:
-        # returns (ip, users, method, hostname_short)
-        if not quick_probe_any(ip, timeout_ms=probe_timeout_ms):
-            return ip, [], "", ""
+    def work_safe(ip: str) -> tuple[str, list[str], str, str, bool]:
+        """Returns (ip, users, method, hostname_short, is_error)."""
+        try:
+            if not quick_probe_any(ip, timeout_ms=probe_timeout_ms):
+                return ip, [], "", "", False
 
-        users, method, _ms, _attempts = find_logged_on_users(
-            ip,
-            domain_suffix=domain_suffix,
-            query_username=query_username,
-            query_password=query_password,
-            per_method_timeout_s=per_method_timeout_s,
-        )
-        users = users or []
-        hostname = ""
-        if users:
-            # IMPORTANT: use per-subnet DNS PTR (reverse_dns() chooses DNS via cached nets)
-            hostname = short_hostname(reverse_dns(ip, timeout_s=1.0))
-        return ip, users, method or "", hostname
+            users, method, _ms, _attempts = find_logged_on_users(
+                ip,
+                domain_suffix=domain_suffix,
+                query_username=query_username,
+                query_password=query_password,
+                per_method_timeout_s=per_method_timeout_s,
+            )
+            users = users or []
+            hostname = ""
+            if users:
+                # IMPORTANT: use per-subnet DNS PTR (network+1) based on explicit nets.
+                hostname = short_hostname(reverse_dns(ip, nets=nets, timeout_s=1.0))
+            return ip, users, method or "", hostname, False
+        except Exception:
+            return ip, [], "", "", True
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=conc) as ex:
-        futs = {ex.submit(work, ip): ip for ip in ips}
-        for fut in concurrent.futures.as_completed(futs):
-            ip = futs[fut]
+        # executor.map is more lightweight than managing futures/as_completed for a large host list.
+        for ip2, users, method, hostname, is_err in ex.map(work_safe, ips):
             probed += 1
-            try:
-                ip2, users, method, hostname = fut.result()
-                if users is None:
-                    users = []
-                if users or method:
-                    alive += 1
-                if users:
-                    queried += 1
-                    for u in users:
-                        key = normalize_login(u)
-                        if not key:
-                            continue
-                        presence[key] = {
+            if is_err:
+                errors += 1
+                continue
+
+            if users or method:
+                alive += 1
+            if users:
+                queried += 1
+                for u in users:
+                    key = normalize_login(u)
+                    if not key:
+                        continue
+                    presence[key] = {
+                        "host": hostname,
+                        "ip": ip2,
+                        "method": method,
+                        "ts": now,
+                    }
+                    matches.append(
+                        {
                             "host": hostname,
                             "ip": ip2,
+                            "login": key,
                             "method": method,
                             "ts": now,
                         }
-                        matches.append(
-                            {
-                                "host": hostname,
-                                "ip": ip2,
-                                "login": key,
-                                "method": method,
-                                "ts": now,
-                            }
-                        )
-            except Exception:
-                errors += 1
-                continue
+                    )
 
     users_found = len(presence)
 
