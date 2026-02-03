@@ -1,0 +1,21 @@
+<div class="card shadow-sm">
+  <div class="card-body">
+    <h1 class="h6 mb-2">Сеанс</h1>
+
+    <div class="row small">
+      <div class="col-md-6">
+        <div class="text-secondary">Пользователь: <strong>{{ user["u"] }}</strong></div>
+        <div class="text-secondary">Тип: <strong>{{ user["auth"] }}</strong></div>
+        <div class="text-secondary">Доступ к настройкам: <strong>{{ "Да" if user.get("settings") else "Нет" }}</strong></div>
+      </div>
+      <div class="col-md-6">
+        <div class="text-secondary">Отображаемое имя: <strong>{{ user.get("dn","") }}</strong></div>
+      </div>
+    </div>
+
+    <div class="mt-2 pt-2 border-top small text-secondary">
+      <div>Последний запуск: <strong>{{ net_scan_last_run if net_scan_last_run else "—" }}</strong></div>
+      <div>Результат: {% if net_scan_last_summary %}{{ net_scan_last_summary }}{% else %}—{% endif %}</div>
+    </div>
+  </div>
+</div>

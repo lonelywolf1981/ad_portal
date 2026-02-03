@@ -165,3 +165,10 @@ h1, h2, h3, h4, h5, h6 {
   /* Slightly improve readability on large screens without making fonts huge */
   html { font-size: 15.25px; }
 }
+
+.modal-user-caption {
+  font-size: 1.1rem;
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--bs-code-color);
+}

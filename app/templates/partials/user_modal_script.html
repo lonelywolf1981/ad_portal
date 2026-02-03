@@ -1,0 +1,13 @@
+<script>
+  // When HTMX swaps modal content, show the Bootstrap modal.
+  document.body.addEventListener('htmx:afterSwap', function (evt) {
+    var tgt = evt.detail && evt.detail.target;
+    if (!tgt) return;
+    if (tgt.id === 'userModalContent') {
+      var el = document.getElementById('userModal');
+      if (!el || !window.bootstrap) return;
+      var m = bootstrap.Modal.getOrCreateInstance(el);
+      m.show();
+    }
+  });
+</script>
