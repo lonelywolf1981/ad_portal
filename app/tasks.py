@@ -8,7 +8,7 @@ from .net_scan import scan_presence
 from .presence import upsert_presence_bulk
 from .mappings import cleanup_host_user_matches, upsert_host_user_matches
 from .repo import db_session, get_or_create_settings
-from .timezone_utils import format_iso_local
+from .timezone_utils import format_ru_local
 
 
 # If a scan crashes mid-flight, allow new runs after this TTL.
@@ -58,8 +58,8 @@ def maybe_run_network_scan(force: bool = False) -> dict:
             next_run = last + timedelta(minutes=interval_min)
             return {
                 "status": "not_due",
-                # Show local time for humans (TZ from env, e.g. Asia/Almaty), without TZ suffix.
-                "next_run": format_iso_local(next_run, timespec="seconds"),
+                # Show local time for humans (TZ from env).
+                "next_run": format_ru_local(next_run),
             }
 
         # Lock and schedule scan
@@ -121,6 +121,8 @@ def run_network_scan() -> dict:
             st.net_scan_lock_ts = None
             db.commit()
             return {"status": "no_creds"}
+
+    # (дальше файл без изменений — оставляю как есть в проекте)
 
         per_method_timeout_s = int(getattr(st, "host_query_timeout_s", 60) or 60)
         conc = int(getattr(st, "net_scan_concurrency", 64) or 64)

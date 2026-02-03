@@ -33,7 +33,8 @@ def get_local_tzinfo():
             pass
 
     # Fallbacks (no tzdata inside the image)
-    if name == "Asia/Almaty":
+    # Kazakhstan time zones: in our deployments we expect UTC+05:00.
+    if name in {"Asia/Almaty", "Asia/Qyzylorda"}:
         return timezone(timedelta(hours=5))
 
     if name.upper() in {"UTC", "GMT", "ETC/UTC", "ETC/GMT"}:

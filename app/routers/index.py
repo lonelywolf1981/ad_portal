@@ -5,7 +5,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from ..deps import get_current_user
 from ..repo import db_session, get_or_create_settings
-from ..timezone_utils import format_iso_local
+from ..timezone_utils import format_ru_local
 from ..webui import templates
 
 
@@ -30,7 +30,7 @@ def index(request: Request):
             st = get_or_create_settings(db)
             dt = getattr(st, "net_scan_last_run_ts", None)
             if dt:
-                net_scan_last_run = format_iso_local(dt, timespec="microseconds")
+                net_scan_last_run = format_ru_local(dt)
                 try:
                     net_scan_last_token = dt.isoformat(timespec="seconds")
                 except Exception:

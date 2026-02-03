@@ -190,7 +190,7 @@
               </div>
               {% if st.net_scan_last_run_ts or st.net_scan_last_summary %}
                 <div class="small text-secondary mt-2">
-                  <div><span class="fw-semibold">Последний запуск:</span> {{ st.net_scan_last_run_ts or '—' }}</div>
+		  <div><span class="fw-semibold">Последний запуск:</span> {{ net_scan_last_run_ui }}</div>
                   <div><span class="fw-semibold">Результат:</span> {{ st.net_scan_last_summary or '—' }}</div>
                 </div>
               {% endif %}

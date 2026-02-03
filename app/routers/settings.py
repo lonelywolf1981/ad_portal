@@ -12,6 +12,7 @@ from ..services import (
     groups_dn_to_name_map,
     save_settings,
 )
+from ..timezone_utils import format_ru_local
 from ..webui import templates
 
 
@@ -23,6 +24,14 @@ def settings_page(request: Request, saved: int = 0):
     user = require_settings_access(request)
     with db_session() as db:
         st = get_or_create_settings(db)
+
+        net_scan_last_run_ui = "—"
+        try:
+            dt = getattr(st, "net_scan_last_run_ts", None)
+            if dt:
+                net_scan_last_run_ui = format_ru_local(dt) or "—"
+        except Exception:
+            pass
 
         groups_cache = get_groups_cache(st)
 
@@ -48,8 +57,11 @@ def settings_page(request: Request, saved: int = 0):
                 "dn_name_map": dn_name_map,
                 "selected_app_dns": selected_app,
                 "selected_settings_dns": selected_settings,
+                "net_scan_last_run_ui": net_scan_last_run_ui,
             },
         )
+
+# остальной файл без изменений
 
 
 @router.post("/settings/save")
