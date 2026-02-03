@@ -9,6 +9,7 @@ from .security import verify_password
 from .crypto import encrypt_str, decrypt_str
 from .ad_utils import split_group_dns
 from .ldap_client import ADConfig, ADClient
+from .utils.numbers import clamp_int
 
 
 def audit_login(db: Session, username: str, auth_type: str, success: bool, ip: str, ua: str, result_code: str, details: str = "") -> None:
@@ -183,60 +184,45 @@ def save_settings(db: Session, st: AppSettings, form: dict) -> None:
     if qpw:
         st.host_query_password_enc = encrypt_str(qpw)
 
-    try:
-        t = int(form.get("host_query_timeout_s") or 60)
-    except Exception:
-        t = 60
-    if t < 5:
-        t = 5
-    if t > 300:
-        t = 300
-    st.host_query_timeout_s = t
+    st.host_query_timeout_s = clamp_int(
+        form.get("host_query_timeout_s"),
+        default=60,
+        min_v=5,
+        max_v=300,
+    )
 
     # Background network scan settings
     st.net_scan_enabled = bool(form.get("net_scan_enabled"))
     st.net_scan_cidrs = (form.get("net_scan_cidrs") or "").strip()
 
-    try:
-        iv = int(form.get("net_scan_interval_min") or 120)
-    except Exception:
-        iv = 120
-    if iv < 30:
-        iv = 30
-    if iv > 24 * 60:
-        iv = 24 * 60
-    st.net_scan_interval_min = iv
+    st.net_scan_interval_min = clamp_int(
+        form.get("net_scan_interval_min"),
+        default=120,
+        min_v=30,
+        max_v=24 * 60,
+    )
 
     # Optional advanced knobs
-    try:
-        c = int(form.get("net_scan_concurrency") or 64)
-    except Exception:
-        c = 64
-    if c < 4:
-        c = 4
-    if c > 256:
-        c = 256
-    st.net_scan_concurrency = c
+    st.net_scan_concurrency = clamp_int(
+        form.get("net_scan_concurrency"),
+        default=64,
+        min_v=4,
+        max_v=256,
+    )
 
-    try:
-        mt = int(form.get("net_scan_method_timeout_s") or 20)
-    except Exception:
-        mt = 20
-    if mt < 5:
-        mt = 5
-    if mt > 60:
-        mt = 60
-    st.net_scan_method_timeout_s = mt
+    st.net_scan_method_timeout_s = clamp_int(
+        form.get("net_scan_method_timeout_s"),
+        default=20,
+        min_v=5,
+        max_v=60,
+    )
 
-    try:
-        pt = int(form.get("net_scan_probe_timeout_ms") or 350)
-    except Exception:
-        pt = 350
-    if pt < 100:
-        pt = 100
-    if pt > 1500:
-        pt = 1500
-    st.net_scan_probe_timeout_ms = pt
+    st.net_scan_probe_timeout_ms = clamp_int(
+        form.get("net_scan_probe_timeout_ms"),
+        default=350,
+        min_v=100,
+        max_v=1500,
+    )
 
     # Access groups
     st.allowed_app_group_dns = ";".join(form.get("allowed_app_group_dns", []))

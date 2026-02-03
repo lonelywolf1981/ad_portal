@@ -6,6 +6,8 @@ import socket
 import time
 from dataclasses import dataclass
 
+from .utils.tcp_probe import tcp_probe
+
 
 _RE_IPv4 = re.compile(r"^(?:\d{1,3}\.){3}\d{1,3}$")
 
@@ -17,14 +19,6 @@ def _is_ipv4(s: str) -> bool:
     try:
         parts = [int(x) for x in s.split(".")]
         return len(parts) == 4 and all(0 <= p <= 255 for p in parts)
-    except Exception:
-        return False
-
-
-def _tcp_probe(host: str, port: int, timeout_s: float = 2.0) -> bool:
-    try:
-        with socket.create_connection((host, port), timeout=timeout_s):
-            return True
     except Exception:
         return False
 
@@ -110,9 +104,9 @@ def _winrm_query_users(target: str, username: str, password: str, per_method_tim
 
     endpoints: list[str] = []
     # Quick probes to avoid long hangs
-    if _tcp_probe(target, 5985, timeout_s=2.0):
+    if tcp_probe(target, 5985, timeout_s=2.0):
         endpoints.append(f"http://{target}:5985/wsman")
-    if _tcp_probe(target, 5986, timeout_s=2.0):
+    if tcp_probe(target, 5986, timeout_s=2.0):
         endpoints.append(f"https://{target}:5986/wsman")
 
     if not endpoints:
@@ -177,7 +171,7 @@ $users | Sort-Object -Unique
 
 def _wmi_query_user(target: str, domain: str, username: str, password: str) -> list[str]:
     """WMI/DCOM: query Win32_ComputerSystem.UserName."""
-    if not _tcp_probe(target, 135, timeout_s=2.0):
+    if not tcp_probe(target, 135, timeout_s=2.0):
         raise RuntimeError("WMI/RPC порт 135 недоступен")
 
     from impacket.dcerpc.v5.dcomrt import DCOMConnection  # type: ignore
@@ -234,7 +228,7 @@ def _smb_query_users(target: str, domain: str, username: str, password: str) -> 
     from impacket.dcerpc.v5 import transport, wkst, srvsvc  # type: ignore
     from impacket.dcerpc.v5.rpcrt import DCERPCException  # type: ignore
 
-    if not _tcp_probe(target, 445, timeout_s=2.0):
+    if not tcp_probe(target, 445, timeout_s=2.0):
         raise RuntimeError("SMB порт 445 недоступен")
 
     smb = SMBConnection(remoteName=target, remoteHost=target, sess_port=445, timeout=7)

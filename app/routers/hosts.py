@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 
 from ..crypto import decrypt_str
-from ..deps import get_current_user
+from ..deps import require_session_or_hx_redirect
 from ..host_logon import find_logged_on_users
 from ..repo import db_session, get_or_create_settings
+from ..utils.numbers import clamp_int
 from ..webui import templates
 
 
@@ -16,12 +17,9 @@ router = APIRouter()
 @router.get("/hosts/logon", response_class=HTMLResponse)
 def hosts_logon(request: Request, target: str = ""):
     """Определить, какой пользователь(и) залогинен на удалённом хосте."""
-    try:
-        _ = get_current_user(request)
-    except HTTPException as e:
-        if e.status_code == status.HTTP_401_UNAUTHORIZED:
-            return HTMLResponse(content="", status_code=401, headers={"HX-Redirect": "/login"})
-        raise
+    auth = require_session_or_hx_redirect(request)
+    if not isinstance(auth, dict):
+        return auth
 
     target = (target or "").strip()
     if len(target) < 2:
@@ -44,7 +42,7 @@ def hosts_logon(request: Request, target: str = ""):
         domain_suffix = (st.ad_domain or "").strip()
         query_user = (st.host_query_username or "").strip()
         query_pwd = decrypt_str(getattr(st, "host_query_password_enc", "") or "")
-        timeout_s = int(getattr(st, "host_query_timeout_s", 60) or 60)
+        timeout_s = clamp_int(getattr(st, "host_query_timeout_s", 60), default=60, min_v=5, max_v=300)
 
     users, method, elapsed_ms, attempts = find_logged_on_users(
         raw_target=target,

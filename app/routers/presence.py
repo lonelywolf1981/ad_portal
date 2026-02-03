@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import io
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from openpyxl import Workbook
 
-from ..deps import get_current_user
+from ..deps import require_session_or_hx_redirect
 from ..mappings import cleanup_host_user_matches, search_host_user_matches
 from ..presence import fmt_dt_ru
 from ..repo import db_session
@@ -18,12 +18,9 @@ router = APIRouter()
 
 @router.get("/presence/search", response_class=HTMLResponse)
 def presence_search(request: Request, q: str = "", sort: str = "when", dir: str = "desc"):
-    try:
-        _ = get_current_user(request)
-    except HTTPException as e:
-        if e.status_code == status.HTTP_401_UNAUTHORIZED:
-            return HTMLResponse(content="", status_code=401, headers={"HX-Redirect": "/login"})
-        raise
+    auth = require_session_or_hx_redirect(request)
+    if not isinstance(auth, dict):
+        return auth
 
     q = (q or "").strip()
     sort = (sort or "when").strip().lower()
@@ -78,12 +75,10 @@ def presence_search(request: Request, q: str = "", sort: str = "when", dir: str 
 
 @router.get("/presence/export.xlsx")
 def presence_export_xlsx(request: Request, q: str = "", sort: str = "when", dir: str = "desc"):
-    try:
-        _ = get_current_user(request)
-    except HTTPException as e:
-        if e.status_code == status.HTTP_401_UNAUTHORIZED:
-            return RedirectResponse(url="/login", status_code=303)
-        raise
+    auth = require_session_or_hx_redirect(request)
+    if not isinstance(auth, dict):
+        # If session is missing, always redirect for a download endpoint.
+        return RedirectResponse(url="/login", status_code=303)
 
     q = (q or "").strip()
     sort = (sort or "when").strip().lower()

@@ -9,6 +9,7 @@ from .presence import upsert_presence_bulk
 from .mappings import cleanup_host_user_matches, upsert_host_user_matches
 from .repo import db_session, get_or_create_settings
 from .timezone_utils import format_ru_local
+from .utils.numbers import clamp_int
 
 
 # If a scan crashes mid-flight, allow new runs after this TTL.
@@ -49,9 +50,7 @@ def maybe_run_network_scan(force: bool = False) -> dict:
         if lock_ts:
             return {"status": "running"}
 
-        interval_min = int(getattr(st, "net_scan_interval_min", 120) or 120)
-        if interval_min < 10:
-            interval_min = 10
+        interval_min = clamp_int(getattr(st, "net_scan_interval_min", 120), default=120, min_v=10, max_v=24 * 60)
 
         last = getattr(st, "net_scan_last_run_ts", None)
         if (not force) and last and (now - last) < timedelta(minutes=interval_min):
@@ -122,11 +121,14 @@ def run_network_scan() -> dict:
             db.commit()
             return {"status": "no_creds"}
 
-    # (дальше файл без изменений — оставляю как есть в проекте)
-
-        per_method_timeout_s = int(getattr(st, "host_query_timeout_s", 60) or 60)
-        conc = int(getattr(st, "net_scan_concurrency", 64) or 64)
-        probe_ms = int(getattr(st, "net_scan_probe_timeout_ms", 350) or 350)
+        per_method_timeout_s = clamp_int(
+            getattr(st, "host_query_timeout_s", 60),
+            default=60,
+            min_v=5,
+            max_v=300,
+        )
+        conc = clamp_int(getattr(st, "net_scan_concurrency", 64), default=64, min_v=1, max_v=256)
+        probe_ms = clamp_int(getattr(st, "net_scan_probe_timeout_ms", 350), default=350, min_v=50, max_v=5000)
 
     # Run scan outside DB transaction
     try:

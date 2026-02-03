@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Request, status
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import APIRouter, Request
+from fastapi.responses import HTMLResponse
 
-from ..deps import get_current_user
+from ..deps import require_session_or_hx_redirect
 from ..ldap_client import ADClient
 from ..net_scan import parse_cidrs, reverse_dns
 from ..presence import fmt_dt_ru, get_presence_map, normalize_login
@@ -20,13 +20,9 @@ router = APIRouter()
 
 @router.get("/users/search", response_class=HTMLResponse)
 def users_search(request: Request, q: str = ""):
-    # Require an active session; for htmx requests redirect via HX-Redirect.
-    try:
-        _ = get_current_user(request)
-    except HTTPException as e:
-        if e.status_code == status.HTTP_401_UNAUTHORIZED:
-            return HTMLResponse(content="", status_code=401, headers={"HX-Redirect": "/login"})
-        raise
+    auth = require_session_or_hx_redirect(request)
+    if not isinstance(auth, dict):
+        return auth
 
     q = (q or "").strip()
     if len(q) < 2:
@@ -125,12 +121,9 @@ def users_search(request: Request, q: str = ""):
 
 @router.get("/users/details", response_class=HTMLResponse)
 def user_details(request: Request, id: str = ""):
-    try:
-        _ = get_current_user(request)
-    except HTTPException as e:
-        if e.status_code == status.HTTP_401_UNAUTHORIZED:
-            return HTMLResponse(content="", status_code=401, headers={"HX-Redirect": "/login"})
-        raise
+    auth = require_session_or_hx_redirect(request)
+    if not isinstance(auth, dict):
+        return auth
 
     try:
         dn = id_to_dn(id)
@@ -174,12 +167,9 @@ def user_view(request: Request, id: str = "", login: str = "", modal: int = 0):
 
     Принимает либо id (закодированный DN), либо login.
     """
-    try:
-        _ = get_current_user(request)
-    except HTTPException as e:
-        if e.status_code == status.HTTP_401_UNAUTHORIZED:
-            return RedirectResponse(url="/login", status_code=303)
-        raise
+    auth = require_session_or_hx_redirect(request)
+    if not isinstance(auth, dict):
+        return auth
 
     id = (id or "").strip()
     login = (login or "").strip()

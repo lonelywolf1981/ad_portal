@@ -9,6 +9,8 @@ from typing import Iterable, Optional
 
 from .host_logon import find_logged_on_users
 from .presence import normalize_login
+from .utils.numbers import clamp_int
+from .utils.tcp_probe import tcp_probe_any
 
 
 PROBE_PORTS = (445, 5985, 5986, 135)
@@ -17,21 +19,11 @@ PROBE_PORTS = (445, 5985, 5986, 135)
 _LAST_NETS: list[ipaddress.IPv4Network] = []
 
 
-def _tcp_probe(host: str, port: int, timeout_s: float) -> bool:
-    try:
-        with socket.create_connection((host, port), timeout=timeout_s):
-            return True
-    except Exception:
-        return False
-
-
 def quick_probe_any(host: str, timeout_ms: int = 350) -> bool:
     """Fast L4 probe to avoid slow/pointless logon checks on non-Windows/non-alive hosts."""
-    t = max(0.05, min(5.0, (timeout_ms or 350) / 1000.0))
-    for p in PROBE_PORTS:
-        if _tcp_probe(host, p, t):
-            return True
-    return False
+    ms = clamp_int(timeout_ms, default=350, min_v=50, max_v=5000)
+    t = ms / 1000.0
+    return tcp_probe_any(host, PROBE_PORTS, timeout_s=t)
 
 
 # Backward-compatible name (some versions of tasks.py import this)
@@ -205,17 +197,8 @@ def scan_presence(
             matches=[],
         )
 
-    conc = int(concurrency or 64)
-    if conc < 1:
-        conc = 1
-    if conc > 256:
-        conc = 256
-
-    per_method_timeout_s = int(per_method_timeout_s or 60)
-    if per_method_timeout_s < 5:
-        per_method_timeout_s = 5
-    if per_method_timeout_s > 300:
-        per_method_timeout_s = 300
+    conc = clamp_int(concurrency, default=64, min_v=1, max_v=256)
+    per_method_timeout_s = clamp_int(per_method_timeout_s, default=60, min_v=5, max_v=300)
 
     presence: dict[str, dict] = {}
     probed = 0

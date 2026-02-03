@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Request, status
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import APIRouter, Request
+from fastapi.responses import HTMLResponse
 
-from ..deps import get_current_user
+from ..deps import require_session_or_hx_redirect
 from ..repo import db_session, get_or_create_settings
 from ..timezone_utils import format_ru_local
 from ..webui import templates
@@ -14,12 +14,10 @@ router = APIRouter()
 
 @router.get("/", response_class=HTMLResponse)
 def index(request: Request):
-    try:
-        user = get_current_user(request)
-    except HTTPException as e:
-        if e.status_code == status.HTTP_401_UNAUTHORIZED:
-            return RedirectResponse(url="/login", status_code=303)
-        raise
+    auth = require_session_or_hx_redirect(request)
+    if not isinstance(auth, dict):
+        return auth
+    user = auth
 
     net_scan_last_run = ""
     net_scan_last_summary = ""
@@ -57,12 +55,9 @@ def index(request: Request):
 @router.get("/net-scan/poll", response_class=HTMLResponse)
 def net_scan_poll(request: Request, last: str = ""):
     """HTMX poll endpoint: triggers full page reload when a new scan finishes."""
-    try:
-        _ = get_current_user(request)
-    except HTTPException as e:
-        if e.status_code == status.HTTP_401_UNAUTHORIZED:
-            return HTMLResponse(content="", status_code=401, headers={"HX-Redirect": "/login"})
-        raise
+    auth = require_session_or_hx_redirect(request)
+    if not isinstance(auth, dict):
+        return auth
 
     last = (last or "").strip()
     cur_token = ""
