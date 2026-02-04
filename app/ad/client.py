@@ -53,6 +53,39 @@ class ADClient:
         except LDAPException as e:
             return False, {"error": str(e)}
 
+    def test_connection(self, timeout_s: float = 3.0) -> bool:
+        """Lightweight connectivity check.
+
+        Used by settings validation/UI. Performs:
+        - TCP connect (ldap3 open)
+        - optional StartTLS
+        - bind with service credentials
+        """
+
+        # Use a dedicated Server instance with connect_timeout to avoid hanging.
+        try:
+            tls = self.server.tls
+            srv = Server(
+                host=self.cfg.host,
+                port=self.cfg.port,
+                use_ssl=self.cfg.use_ssl,
+                get_info=ALL,
+                tls=tls,
+                connect_timeout=float(timeout_s),
+            )
+            conn = Connection(srv, user=self.cfg.bind_principal, password=self.cfg.bind_password, auto_bind=False)
+            conn.open()
+            if self.cfg.starttls:
+                conn.start_tls()
+            ok = bool(conn.bind())
+            try:
+                conn.unbind()
+            except Exception:
+                pass
+            return ok
+        except LDAPException:
+            return False
+
     def find_user_by_login(self, login: str) -> Optional[ADUser]:
         login = (login or "").strip()
         if not login:

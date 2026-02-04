@@ -42,6 +42,9 @@ class AppSettings(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)  # always 1
 
+    # Settings schema version (for lightweight, non-Alembic migrations)
+    schema_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
     auth_mode: Mapped[str] = mapped_column(String(16), default="local", nullable=False)  # local|ad
 
     ad_dc_short: Mapped[str] = mapped_column(String(64), default="", nullable=False)     # e.g. DC1

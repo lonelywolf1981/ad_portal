@@ -30,6 +30,10 @@ def ensure_schema() -> None:
         def add(sql: str) -> None:
             conn.exec_driver_sql(sql)
 
+        # Settings schema version
+        if "schema_version" not in cols:
+            add("ALTER TABLE app_settings ADD COLUMN schema_version INTEGER NOT NULL DEFAULT 1")
+
         # Remote host logon query settings
         if "host_query_username" not in cols:
             add("ALTER TABLE app_settings ADD COLUMN host_query_username VARCHAR(128) NOT NULL DEFAULT ''")
