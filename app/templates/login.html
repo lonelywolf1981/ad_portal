@@ -22,7 +22,7 @@
     <div class="card shadow-sm">
       <div class="card-body p-4">
 
-    <ul class="nav nav-pills mb-3" role="tablist">
+    <ul class="nav nav-pills mb-3" id="authTabs" role="tablist">
       <li class="nav-item" role="presentation">
         <button
           class="nav-link {% if active_tab == 'local' %}active{% endif %}"
@@ -47,18 +47,26 @@
     <div class="tab-content">
 
       <div class="tab-pane fade {% if active_tab == 'local' %}show active{% endif %}" id="pane-local" role="tabpanel">
-        {% if error_local %}
-          <div class="alert alert-danger py-2">{{ error_local }}</div>
-        {% endif %}
+        <div id="login-result-local" class="mb-3">
+          {% if error_local %}
+            <div class="alert alert-danger py-2 mb-0">{{ error_local }}</div>
+          {% endif %}
+        </div>
 
-        <form method="post" action="/login/local">
+        <form
+          method="post"
+          action="/login/local"
+          hx-post="/login/local"
+          hx-target="#login-result-local"
+          hx-swap="innerHTML"
+        >
           <div class="mb-3">
             <label class="form-label fw-semibold">Логин</label>
-            <input name="username" class="form-control" required>
+            <input name="username" class="form-control" autocomplete="username">
           </div>
           <div class="mb-3">
             <label class="form-label fw-semibold">Пароль</label>
-            <input name="password" type="password" class="form-control" required>
+            <input name="password" type="password" class="form-control" autocomplete="current-password">
           </div>
           <button class="btn btn-primary w-100">Войти</button>
         </form>
@@ -76,18 +84,26 @@
           </div>
         {% endif %}
 
-        {% if error_ad %}
-          <div class="alert alert-danger py-2">{{ error_ad }}</div>
-        {% endif %}
+        <div id="login-result-ad" class="mb-3">
+          {% if error_ad %}
+            <div class="alert alert-danger py-2 mb-0">{{ error_ad }}</div>
+          {% endif %}
+        </div>
 
-        <form method="post" action="/login/ad">
+        <form
+          method="post"
+          action="/login/ad"
+          hx-post="/login/ad"
+          hx-target="#login-result-ad"
+          hx-swap="innerHTML"
+        >
           <div class="mb-3">
             <label class="form-label fw-semibold">Логин</label>
             <input
               name="username"
               class="form-control"
               placeholder="sAMAccountName или user@domain"
-              required
+              autocomplete="username"
               {% if auth_mode != "ad" %}disabled{% endif %}
             >
           </div>
@@ -97,7 +113,7 @@
               name="password"
               type="password"
               class="form-control"
-              required
+              autocomplete="current-password"
               {% if auth_mode != "ad" %}disabled{% endif %}
             >
           </div>
@@ -116,5 +132,22 @@
     </div>
   </div>
 </div>
+
+<script>
+  // Clear stale alerts when switching between LOCAL/AD tabs.
+  (function () {
+    function clearEl(id) {
+      var el = document.getElementById(id);
+      if (el) el.innerHTML = "";
+    }
+    document.addEventListener('shown.bs.tab', function (ev) {
+      var t = ev && ev.target;
+      if (!t) return;
+      if (!t.closest || !t.closest('#authTabs')) return;
+      clearEl('login-result-local');
+      clearEl('login-result-ad');
+    });
+  })();
+</script>
 
 {% endblock %}

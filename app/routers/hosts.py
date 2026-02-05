@@ -26,8 +26,8 @@ def hosts_logon(request: Request, target: str = ""):
     target = (target or "").strip()
     if len(target) < 2:
         if is_htmx:
-            # HTMX doesn't swap content for 4xx/5xx responses by default.
-            # For inline feedback we return 200 and show an alert in the target.
+            # HTMX does not swap content on 4xx/5xx by default.
+            # Return 200 with an alert fragment so the user sees the message.
             return htmx_alert(ui_result(False, "Введите имя хоста или IP."), status_code=200)
         return templates.TemplateResponse(
             "host_logon_results.html",

@@ -30,8 +30,8 @@ def users_search(request: Request, q: str = ""):
         if is_htmx:
             return htmx_alert(
                 ui_result(False, "Введите минимум 2 символа для поиска."),
-                # HTMX doesn't swap content for 4xx/5xx responses by default.
-                # For inline feedback we return 200 and show an alert in the target.
+                # HTMX does not swap content on 4xx/5xx by default.
+                # Return 200 with an alert fragment so the user sees the message.
                 status_code=200,
             )
         return templates.TemplateResponse(

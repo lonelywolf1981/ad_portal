@@ -69,6 +69,7 @@
           hx-get="/users/search"
           hx-target="#user-results"
           hx-swap="innerHTML"
+          hx-trigger="submit, keyup changed delay:350ms from:input[name='q']"
         >
           <div class="col-md-8">
             <input
@@ -105,6 +106,7 @@
           hx-get="/hosts/logon"
           hx-target="#host-logon-results"
           hx-swap="innerHTML"
+          hx-trigger="submit, keyup changed delay:350ms from:input[name='target']"
         >
           <div class="col-md-8">
             <input

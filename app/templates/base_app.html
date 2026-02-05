@@ -49,5 +49,46 @@
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script src="/static/theme.js"></script>
+
+  <script>
+    // UI hygiene for HTMX result panes:
+    // - Clear stale alerts/results when switching tabs.
+    // - Clear results when the corresponding input becomes empty.
+    (function () {
+      function clearEl(id) {
+        var el = document.getElementById(id);
+        if (el) el.innerHTML = "";
+      }
+
+      // Clear results on main tab switch
+      document.addEventListener('shown.bs.tab', function (ev) {
+        var t = ev && ev.target;
+        if (!t) return;
+        // Only react for the main tabs container
+        if (!t.closest || !t.closest('#mainTabs')) return;
+        clearEl('user-results');
+        clearEl('host-logon-results');
+        // presence-results is intentionally NOT cleared: it has auto-load and acts as a dashboard
+      });
+
+      // Clear user/host search results when input becomes empty
+      document.addEventListener('input', function (ev) {
+        var el = ev && ev.target;
+        if (!el || !el.name) return;
+        var v = (el.value || '').trim();
+        if (el.name === 'q') {
+          // Users search input lives under #pane-users
+          if (el.closest && el.closest('#pane-users') && v.length === 0) {
+            clearEl('user-results');
+          }
+        }
+        if (el.name === 'target') {
+          if (el.closest && el.closest('#pane-host') && v.length === 0) {
+            clearEl('host-logon-results');
+          }
+        }
+      });
+    })();
+  </script>
 </body>
 </html>

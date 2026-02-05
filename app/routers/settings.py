@@ -494,7 +494,8 @@ async def settings_import_json(request: Request, file: UploadFile = File(...)):
 
     with db_session() as db:
         st = get_or_create_settings(db)
-        save_settings(db, st, form)
+        # Keep import compatible with both legacy and the refactored settings storage.
+        _call_save_settings_compat(db, st, form)
 
     return RedirectResponse(url="/settings?saved=1", status_code=303)
 

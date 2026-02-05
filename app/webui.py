@@ -4,7 +4,7 @@ from html import escape
 
 from fastapi import Request
 from fastapi.responses import HTMLResponse
-from fastapi.responses import RedirectResponse
+from fastapi.responses import Response
 from fastapi.templating import Jinja2Templates
 
 from .deps import SESSION_MAX_AGE
@@ -55,7 +55,7 @@ def htmx_alert(result: dict, *, status_code: int = 200) -> HTMLResponse:
     return HTMLResponse("".join(parts), status_code=status_code)
 
 
-def set_session_cookie(resp: RedirectResponse, payload: dict) -> None:
+def set_session_cookie(resp: Response, payload: dict) -> None:
     """Set signed session cookie (kept in one place for all auth flows)."""
     env = get_env()
     token = create_session(payload)
