@@ -8,7 +8,7 @@ from ..deps import require_session_or_hx_redirect
 from ..host_logon import find_logged_on_users
 from ..repo import db_session, get_or_create_settings
 from ..utils.numbers import clamp_int
-from ..webui import templates
+from ..webui import htmx_alert, templates, ui_result
 
 
 router = APIRouter()
@@ -21,8 +21,14 @@ def hosts_logon(request: Request, target: str = ""):
     if not isinstance(auth, dict):
         return auth
 
+    is_htmx = request.headers.get("HX-Request") is not None
+
     target = (target or "").strip()
     if len(target) < 2:
+        if is_htmx:
+            # HTMX doesn't swap content for 4xx/5xx responses by default.
+            # For inline feedback we return 200 and show an alert in the target.
+            return htmx_alert(ui_result(False, "Введите имя хоста или IP."), status_code=200)
         return templates.TemplateResponse(
             "host_logon_results.html",
             {

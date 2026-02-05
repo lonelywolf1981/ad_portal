@@ -18,7 +18,7 @@ from ..services import (
     save_settings,
 )
 from ..timezone_utils import format_ru_local
-from ..webui import templates
+from ..webui import htmx_alert, templates, ui_result
 
 from ..ad.client import ADClient
 from ..ad.models import ADConfig
@@ -136,10 +136,14 @@ def _call_save_settings_compat(db, st, payload: dict) -> None:
             save_settings(db, _coerce_settings_payload(payload))
 
 
-def _alert(ok: bool, message: str, details: str = "") -> str:
-    cls = "alert-success" if ok else "alert-danger"
-    det = f"<div class='small text-secondary mt-1'>{details}</div>" if details else ""
-    return f"<div class='alert {cls} py-2 mb-0'>{message}{det}</div>"
+def _alert_response(ok: bool, message: str, details: str = "", *, status_code: int = 200) -> HTMLResponse:
+    """Compatibility wrapper for settings validation endpoints.
+
+    Settings validate tools are HTMX-driven and expect HTML fragments.
+    We still standardize the underlying data shape via ui_result().
+    """
+
+    return htmx_alert(ui_result(ok, message, details), status_code=status_code)
 
 
 def _parse_cidrs(text: str) -> list[str]:
@@ -279,7 +283,7 @@ def settings_validate_ad(
     if not isinstance(auth, dict):
         return auth
     if not auth.get("settings", False):
-        return HTMLResponse(content=_alert(False, "Доступ запрещён."), status_code=403)
+        return _alert_response(False, "Доступ запрещён.", status_code=403)
 
     with db_session() as db:
         st = get_or_create_settings(db)
@@ -292,7 +296,7 @@ def settings_validate_ad(
         bind_pw = (ad_bind_password or "").strip() or decrypt_str(st.ad_bind_password_enc)
 
     if not (dc and domain and bind_user and bind_pw):
-        return HTMLResponse(content=_alert(False, "AD: заполните DC/домен/bind user и пароль."), status_code=200)
+        return _alert_response(False, "AD: заполните DC/домен/bind user и пароль.")
 
     if mode == "ldaps":
         port, use_ssl, starttls = 636, True, False
@@ -314,13 +318,10 @@ def settings_validate_ad(
         client = ADClient(cfg)
         ok, res = client.service_bind()
         if ok:
-            return HTMLResponse(content=_alert(True, "AD: подключение и bind успешны."), status_code=200)
-        return HTMLResponse(
-            content=_alert(False, "AD: не удалось подключиться или выполнить bind", details=f"Ошибка bind: {res}"),
-            status_code=200,
-        )
+            return _alert_response(True, "AD: подключение и bind успешны.")
+        return _alert_response(False, "AD: не удалось подключиться или выполнить bind", details=f"Ошибка bind: {res}")
     except Exception as e:
-        return HTMLResponse(content=_alert(False, "AD: ошибка проверки", details=str(e)), status_code=200)
+        return _alert_response(False, "AD: ошибка проверки", details=str(e))
 
 
 @router.post("/settings/validate/host", response_class=HTMLResponse)
@@ -335,14 +336,11 @@ def settings_validate_host(
     if not isinstance(auth, dict):
         return auth
     if not auth.get("settings", False):
-        return HTMLResponse(content=_alert(False, "Доступ запрещён."), status_code=403)
+        return _alert_response(False, "Доступ запрещён.", status_code=403)
 
     test_host = (host_query_test_host or "").strip()
     if not test_host:
-        return HTMLResponse(
-            content=_alert(False, "Host query: укажите тестовый хост (hostname или IP)."),
-            status_code=200,
-        )
+        return _alert_response(False, "Host query: укажите тестовый хост (hostname или IP).")
 
     with db_session() as db:
         st = get_or_create_settings(db)
@@ -353,10 +351,7 @@ def settings_validate_host(
         timeout = int(host_query_timeout_s or st.host_query_timeout_s or 60)
 
     if not (user and pw):
-        return HTMLResponse(
-            content=_alert(False, "Host query: заполните user/password (пароль должен быть задан)."),
-            status_code=200,
-        )
+        return _alert_response(False, "Host query: заполните user/password (пароль должен быть задан).")
 
     try:
         users, method, total_ms, attempts = find_logged_on_users(
@@ -369,19 +364,13 @@ def settings_validate_host(
         if users:
             u = ", ".join(users[:5])
             more = "…" if len(users) > 5 else ""
-            return HTMLResponse(
-                content=_alert(True, f"Host query: OK ({method}, {total_ms} ms)", details=f"Пользователи: {u}{more}"),
-                status_code=200,
-            )
+            return _alert_response(True, f"Host query: OK ({method}, {total_ms} ms)", details=f"Пользователи: {u}{more}")
 
         # No users found is still a successful connectivity check.
         last = attempts[-1].message if attempts else "Нет данных"
-        return HTMLResponse(
-            content=_alert(True, f"Host query: ответ получен ({total_ms} ms)", details=last),
-            status_code=200,
-        )
+        return _alert_response(True, f"Host query: ответ получен ({total_ms} ms)", details=last)
     except Exception as e:
-        return HTMLResponse(content=_alert(False, "Host query: ошибка проверки", details=str(e)), status_code=200)
+        return _alert_response(False, "Host query: ошибка проверки", details=str(e))
 
 
 @router.post("/settings/validate/net", response_class=HTMLResponse)
@@ -394,14 +383,14 @@ def settings_validate_net(
     if not isinstance(auth, dict):
         return auth
     if not auth.get("settings", False):
-        return HTMLResponse(content=_alert(False, "Доступ запрещён."), status_code=403)
+        return _alert_response(False, "Доступ запрещён.", status_code=403)
 
     if not bool(net_scan_enabled):
-        return HTMLResponse(content=_alert(True, "Net scan: выключено (это нормально)."), status_code=200)
+        return _alert_response(True, "Net scan: выключено (это нормально).")
 
     cidrs = _parse_cidrs(net_scan_cidrs)
     if not cidrs:
-        return HTMLResponse(content=_alert(False, "Net scan: включено, но CIDR не задан."), status_code=200)
+        return _alert_response(False, "Net scan: включено, но CIDR не задан.")
 
     bad: list[str] = []
     too_big: list[str] = []
@@ -414,14 +403,11 @@ def settings_validate_net(
             bad.append(raw)
 
     if bad:
-        return HTMLResponse(content=_alert(False, "Net scan: ошибка CIDR", details="; ".join(bad)), status_code=200)
+        return _alert_response(False, "Net scan: ошибка CIDR", details="; ".join(bad))
     if too_big:
-        return HTMLResponse(
-            content=_alert(False, "Net scan: слишком большой диапазон", details="; ".join(too_big)),
-            status_code=200,
-        )
+        return _alert_response(False, "Net scan: слишком большой диапазон", details="; ".join(too_big))
 
-    return HTMLResponse(content=_alert(True, "Net scan: проверка пройдена."), status_code=200)
+    return _alert_response(True, "Net scan: проверка пройдена.")
 
 
 @router.get("/settings/export.json")

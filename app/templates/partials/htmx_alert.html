@@ -1,0 +1,15 @@
+{#
+  Standard alert partial for HTMX swaps.
+
+  Input:
+    result: { ok: bool, message: str, details: str }
+#}
+
+{% set cls = 'alert-success' if result.ok else 'alert-danger' %}
+
+<div class="alert {{ cls }} py-2 mb-0">
+  {{ result.message }}
+  {% if result.details %}
+    <div class="small text-secondary mt-1">{{ result.details }}</div>
+  {% endif %}
+</div>

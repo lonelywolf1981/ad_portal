@@ -12,7 +12,7 @@ from ..services import ad_cfg_from_settings
 from ..utils.dn import dn_to_id, id_to_dn
 from ..utils.net import looks_like_ipv4, short_hostname
 from ..viewmodels.user_details import build_detail_items
-from ..webui import templates
+from ..webui import htmx_alert, templates, ui_result
 
 router = APIRouter()
 
@@ -23,8 +23,17 @@ def users_search(request: Request, q: str = ""):
     if not isinstance(auth, dict):
         return auth
 
+    is_htmx = request.headers.get("HX-Request") is not None
+
     q = (q or "").strip()
     if len(q) < 2:
+        if is_htmx:
+            return htmx_alert(
+                ui_result(False, "Введите минимум 2 символа для поиска."),
+                # HTMX doesn't swap content for 4xx/5xx responses by default.
+                # For inline feedback we return 200 and show an alert in the target.
+                status_code=200,
+            )
         return templates.TemplateResponse(
             "users_results.html",
             {"request": request, "users": [], "error": "Введите минимум 2 символа для поиска."},
@@ -34,6 +43,14 @@ def users_search(request: Request, q: str = ""):
         st = get_or_create_settings(db)
         cfg = ad_cfg_from_settings(st)
         if not cfg:
+            if is_htmx:
+                return htmx_alert(
+                    ui_result(
+                        False,
+                        "AD не настроен. Откройте «Настройки» и заполните параметры подключения.",
+                    ),
+                    status_code=200,
+                )
             return templates.TemplateResponse(
                 "users_results.html",
                 {
@@ -46,6 +63,8 @@ def users_search(request: Request, q: str = ""):
     client = ADClient(cfg)
     ok, msg, items = client.search_users(q, limit=40)
     if not ok:
+        if is_htmx:
+            return htmx_alert(ui_result(False, msg or "Ошибка поиска в AD."), status_code=200)
         return templates.TemplateResponse(
             "users_results.html",
             {"request": request, "users": [], "error": msg or "Ошибка поиска в AD."},
