@@ -12,22 +12,23 @@ from .schema import AppSettingsSchema, CURRENT_SCHEMA_VERSION
 
 
 def _migrate_settings_row(st: AppSettings) -> bool:
-    """Apply in-place lightweight migrations for settings.
+    """Apply lightweight in-place migrations for settings row.
 
-    Returns True if the row was modified.
+    We keep DB schema stable; only normalize columns and bump schema_version.
     """
-
     changed = False
     v = int(getattr(st, "schema_version", 0) or 0)
 
-    # v0 -> v1
     if v < 1:
         st.schema_version = 1
         changed = True
 
-    # Future migrations go here (v1 -> v2 -> ...)
+    # v1 -> v2: only schema_version bump; structure is handled in typed schema upgrade.
+    if v < 2:
+        st.schema_version = 2
+        changed = True
+
     if st.schema_version != CURRENT_SCHEMA_VERSION:
-        # keep monotonicity; never downgrade
         st.schema_version = max(int(st.schema_version or 0), CURRENT_SCHEMA_VERSION)
         changed = True
 
@@ -40,13 +41,16 @@ def get_settings(db: Session) -> AppSettingsSchema:
         st.updated_at = datetime.utcnow()
         db.commit()
 
+    auth_mode = (st.auth_mode or "local").strip() or "local"
+
     return AppSettingsSchema(
         schema_version=int(getattr(st, "schema_version", CURRENT_SCHEMA_VERSION) or CURRENT_SCHEMA_VERSION),
-        auth_mode=(st.auth_mode or "local").strip() or "local",
+        auth={"mode": auth_mode},
+        auth_mode=auth_mode,  # legacy convenience for templates/forms
         ad={
             "dc_short": (st.ad_dc_short or "").strip(),
             "domain": (st.ad_domain or "").strip(),
-            "conn_mode": "ldaps" if bool(st.ad_use_ssl) else "starttls",
+            "conn_mode": "ldaps" if bool(getattr(st, "ad_use_ssl", False)) else "starttls",
             "bind_username": (st.ad_bind_username or "").strip(),
             "bind_password": decrypt_str(st.ad_bind_password_enc) if (st.ad_bind_password_enc or "") else "",
             "tls_validate": bool(getattr(st, "ad_tls_validate", False)),
@@ -58,6 +62,8 @@ def get_settings(db: Session) -> AppSettingsSchema:
             "username": (st.host_query_username or "").strip(),
             "password": decrypt_str(st.host_query_password_enc) if (st.host_query_password_enc or "") else "",
             "timeout_s": int(st.host_query_timeout_s or 60),
+            # UI-only; not stored in DB yet
+            "test_host": "",
         },
         net_scan={
             "enabled": bool(st.net_scan_enabled),
@@ -75,16 +81,23 @@ def save_settings(db: Session, data: AppSettingsSchema, *, keep_secrets_if_blank
 
     st = get_or_create_settings(db)
 
-    # schema version
-    st.schema_version = int(data.schema_version or CURRENT_SCHEMA_VERSION)
+    st.schema_version = int(getattr(data, "schema_version", CURRENT_SCHEMA_VERSION) or CURRENT_SCHEMA_VERSION)
 
-    # auth
-    st.auth_mode = (data.auth_mode or "local").strip()
+    # auth (single source: data.auth.mode; fallback to legacy attr)
+    mode = None
+    try:
+        mode = (data.auth.mode or "").strip()
+    except Exception:
+        mode = ""
+    if not mode:
+        mode = (getattr(data, "auth_mode", "local") or "local").strip()
+    st.auth_mode = mode or "local"
 
     # AD
     st.ad_dc_short = (data.ad.dc_short or "").strip()
     st.ad_domain = (data.ad.domain or "").strip()
 
+    # Keep AD connection fields consistent.
     if data.ad.conn_mode == "ldaps":
         st.ad_port = 636
         st.ad_use_ssl = True
@@ -116,9 +129,8 @@ def save_settings(db: Session, data: AppSettingsSchema, *, keep_secrets_if_blank
     st.net_scan_cidrs = "\n".join(data.net_scan.cidrs or [])
     st.net_scan_interval_min = int(data.net_scan.interval_min or 120)
     st.net_scan_concurrency = int(data.net_scan.concurrency or 64)
-    # `net_scan_method_timeout_s` may not exist in old DB; schema bootstrap adds it.
     setattr(st, "net_scan_method_timeout_s", int(data.net_scan.method_timeout_s or 20))
-    st.net_scan_probe_timeout_ms = int(data.net_scan.probe_timeout_ms or 350)
+    setattr(st, "net_scan_probe_timeout_ms", int(data.net_scan.probe_timeout_ms or 350))
 
     st.updated_at = datetime.utcnow()
     db.commit()

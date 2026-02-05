@@ -16,13 +16,22 @@
         </a>
       </div>
 
-      <form method="post" action="/settings/import" enctype="multipart/form-data" class="d-flex flex-column gap-2">
-        <input class="form-control" type="file" name="file" accept="application/json">
+      <form
+        id="settings-import-form"
+        method="post"
+        action="/settings/import"
+        enctype="multipart/form-data"
+        class="d-flex flex-column gap-2"
+        hx-post="/settings/import"
+        hx-encoding="multipart/form-data"
+        hx-target="#settings-import-result"
+        hx-swap="innerHTML"
+      >
+        <input class="form-control" type="file" name="file" accept="application/json" required>
         <button type="submit" class="btn btn-outline-primary">Импортировать</button>
-        <div class="form-text">
-          Если в импортируемом файле пароли пустые — текущие пароли сохраняются.
-        </div>
       </form>
+
+      <div id="settings-import-result"></div>
     </div>
   </div>
 </div>

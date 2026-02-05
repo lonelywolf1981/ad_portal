@@ -39,9 +39,11 @@ def htmx_alert(result: dict, *, status_code: int = 200) -> HTMLResponse:
     ok = bool(result.get("ok"))
     message = escape(str(result.get("message") or ""))
     details = escape(str(result.get("details") or ""))
+    hints_raw = result.get("hints") or []
+    hints = [escape(str(x)) for x in hints_raw if x]
 
     # Bootstrap: danger for errors, success for ok, secondary if empty message.
-    if not message and not details:
+    if not message and not details and not hints:
         level = "secondary"
     else:
         level = "success" if ok else "danger"
@@ -51,6 +53,11 @@ def htmx_alert(result: dict, *, status_code: int = 200) -> HTMLResponse:
         parts.append(f"<div>{message}</div>")
     if details:
         parts.append(f"<div class='small mt-1'><code>{details}</code></div>")
+    if hints:
+        parts.append("<ul class='small mt-2 mb-0'>")
+        for h in hints:
+            parts.append(f"<li>{h}</li>")
+        parts.append("</ul>")
     parts.append("</div>")
     return HTMLResponse("".join(parts), status_code=status_code)
 

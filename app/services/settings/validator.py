@@ -85,7 +85,11 @@ def validate_ad(settings: AppSettingsSchema, *, timeout_s: float = 3.0) -> Valid
 def validate_host_query(settings: AppSettingsSchema) -> ValidateResult:
     """Validate host query configuration.
 
-    If `test_host` is provided, performs a lightweight query.
+    - Checks that credentials are provided.
+    - If `test_host` is provided:
+        * DNS resolve check
+        * quick TCP reachability probes (445, 5985, 5986)
+        * optional lightweight query via `find_logged_on_users`
     """
 
     if not settings.host_query.username:
@@ -101,12 +105,31 @@ def validate_host_query(settings: AppSettingsSchema) -> ValidateResult:
             details="Для полной проверки укажите тестовый хост и нажмите “Проверить”.",
         )
 
+    # DNS
     try:
-        # quick DNS resolution check
-        socket.gethostbyname(host)
+        ip = socket.gethostbyname(host)
     except Exception as e:
         return ValidateResult(False, f"Host query: не удалось разрешить хост {host}", details=str(e))
 
+    # TCP reachability probes (best-effort; Windows host may block some ports)
+    probes = [(445, "SMB/445"), (5985, "WinRM/HTTP 5985"), (5986, "WinRM/HTTPS 5986")]
+    open_ports: list[str] = []
+    closed_ports: list[str] = []
+    for port, label in probes:
+        try:
+            sock = socket.create_connection((ip, port), timeout=1.0)
+            sock.close()
+            open_ports.append(label)
+        except Exception:
+            closed_ports.append(label)
+
+    details = f"{host} → {ip}"
+    if open_ports:
+        details += " | доступно: " + ", ".join(open_ports)
+    if closed_ports:
+        details += " | нет ответа: " + ", ".join(closed_ports)
+
+    # Lightweight query
     try:
         domain_suffix = (settings.ad.domain or "").strip()
         users, _target, _total_ms, _attempts = find_logged_on_users(
@@ -121,11 +144,12 @@ def validate_host_query(settings: AppSettingsSchema) -> ValidateResult:
             return ValidateResult(
                 True,
                 f"Host query: успешно (на {host} активные пользователи не найдены)",
+                details=details,
             )
 
         example = (users[0] or "").strip()
         msg = f"Host query: успешно (пример: {example})" if example else "Host query: успешно"
-        return ValidateResult(True, msg)
+        return ValidateResult(True, msg, details=details)
     except Exception as e:
         return ValidateResult(
             False,

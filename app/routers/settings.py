@@ -74,6 +74,7 @@ def _coerce_settings_payload(payload: dict) -> object:
 
     data = {
         "schema_version": int(payload.get("schema_version") or CURRENT_SCHEMA_VERSION),
+        "auth": {"mode": (payload.get("auth_mode") or "local").strip() or "local"},
         "auth_mode": (payload.get("auth_mode") or "local").strip() or "local",
         "ad": {
             "dc_short": payload.get("ad_dc_short", ""),
@@ -462,41 +463,92 @@ async def settings_import_json(request: Request, file: UploadFile = File(...)):
             status_code=403,
         )
 
+    hx = (request.headers.get('HX-Request', '') or '').lower() == 'true'
+
     raw = await file.read()
     try:
         data = json.loads(raw.decode("utf-8", errors="replace"))
     except Exception:
+        if hx:
+            return htmx_alert(ui_result(False, "Импорт: ошибка", "Некорректный JSON"), status_code=200)
         return RedirectResponse(url="/settings?saved=0&import_err=1", status_code=303)
 
     # Map JSON -> form dict compatible with existing save_settings().
     try:
+        ad = data.get("ad") or {}
+        hq = data.get("host_query") or {}
+        ns = data.get("net_scan") or {}
+
+        # Tolerant picks (we've had multiple JSON shapes over iterations).
+        def pick(*vals: object) -> object:
+            for v in vals:
+                if v is None:
+                    continue
+                if isinstance(v, str):
+                    if v.strip():
+                        return v
+                    continue
+                return v
+            return ""
+
+        cidrs_val = ns.get("cidrs")
+        if isinstance(cidrs_val, list):
+            cidrs_text = "\n".join(str(x) for x in cidrs_val if str(x).strip())
+        else:
+            cidrs_text = str(cidrs_val or "")
+
         form = {
-            "auth_mode": data.get("auth_mode") or "local",
-            "ad_dc_short": (data.get("ad") or {}).get("dc") or "",
-            "ad_domain": (data.get("ad") or {}).get("domain") or "",
-            "ad_conn_mode": (data.get("ad") or {}).get("conn_mode") or "ldaps",
-            "ad_bind_username": (data.get("ad") or {}).get("bind_username") or "",
-            "ad_bind_password": (data.get("ad") or {}).get("bind_password") or "",
-            "host_query_username": (data.get("host_query") or {}).get("username") or "",
-            "host_query_password": (data.get("host_query") or {}).get("password") or "",
-            "host_query_timeout_s": (data.get("host_query") or {}).get("timeout_s") or 60,
-            "net_scan_enabled": bool((data.get("net_scan") or {}).get("enabled")),
-            "net_scan_cidrs": (data.get("net_scan") or {}).get("cidrs") or "",
-            "net_scan_interval_min": (data.get("net_scan") or {}).get("interval_min") or 120,
-            "net_scan_concurrency": (data.get("net_scan") or {}).get("concurrency") or 64,
-            "net_scan_method_timeout_s": (data.get("net_scan") or {}).get("method_timeout_s") or 20,
-            "net_scan_probe_timeout_ms": (data.get("net_scan") or {}).get("probe_timeout_ms") or 350,
+            # auth
+            "auth_mode": pick(data.get("auth_mode"), (data.get("auth") or {}).get("mode"), "local") or "local",
+
+            # ad
+            "ad_dc_short": pick(ad.get("dc"), ad.get("dc_short"), ad.get("dcShort"), data.get("ad_dc_short"), ""),
+            "ad_domain": pick(ad.get("domain"), data.get("ad_domain"), ""),
+            "ad_conn_mode": pick(ad.get("conn_mode"), ad.get("connMode"), data.get("ad_conn_mode"), "ldaps") or "ldaps",
+            "ad_bind_username": pick(ad.get("bind_username"), ad.get("bindUser"), data.get("ad_bind_username"), ""),
+            "ad_bind_password": pick(ad.get("bind_password"), ad.get("bindPassword"), data.get("ad_bind_password"), ""),
+
+            # host_query
+            "host_query_username": pick(hq.get("username"), data.get("host_query_username"), ""),
+            "host_query_password": pick(hq.get("password"), data.get("host_query_password"), ""),
+            "host_query_timeout_s": int(pick(hq.get("timeout_s"), data.get("host_query_timeout_s"), 60) or 60),
+
+            # net_scan
+            "net_scan_enabled": bool(pick(ns.get("enabled"), data.get("net_scan_enabled"), False)),
+            "net_scan_cidrs": cidrs_text,
+            "net_scan_interval_min": int(pick(ns.get("interval_min"), data.get("net_scan_interval_min"), 120) or 120),
+            "net_scan_concurrency": int(pick(ns.get("concurrency"), data.get("net_scan_concurrency"), 64) or 64),
+            "net_scan_method_timeout_s": int(pick(ns.get("method_timeout_s"), data.get("net_scan_method_timeout_s"), 20) or 20),
+            "net_scan_probe_timeout_ms": int(pick(ns.get("probe_timeout_ms"), data.get("net_scan_probe_timeout_ms"), 350) or 350),
+
             "allowed_app_group_dns": data.get("allowed_app_group_dns") or [],
             "allowed_settings_group_dns": data.get("allowed_settings_group_dns") or [],
         }
     except Exception:
+        if hx:
+            return htmx_alert(ui_result(False, "Импорт: ошибка", "Не удалось применить настройки"), status_code=200)
         return RedirectResponse(url="/settings?saved=0&import_err=1", status_code=303)
 
     with db_session() as db:
         st = get_or_create_settings(db)
+        # Если файл был экспортирован "без паролей", то секреты (bind/query) окажутся пустыми.
+        # В таком случае импорт применит всё остальное, но для работы AD bind нужно
+        # либо импортировать "с паролями", либо ввести пароль вручную и нажать "Сохранить".
+        missing: list[str] = []
+        if not (form.get("ad_bind_password") or "").strip() and not (getattr(st, "ad_bind_password_enc", "") or ""):
+            missing.append("AD bind password")
+        if not (form.get("host_query_password") or "").strip() and not (getattr(st, "host_query_password_enc", "") or ""):
+            missing.append("Host query password")
+
         # Keep import compatible with both legacy and the refactored settings storage.
         _call_save_settings_compat(db, st, form)
 
+    if hx:
+        details = "Настройки применены"
+        if missing:
+            details += "\n\nВнимание: в импортируемом файле отсутствуют пароли (или они пустые): " + ", ".join(missing) + "."
+            details += "\nЭкспортируйте настройки с паролями (кнопка 'Экспорт (с паролями)'), либо введите пароль(и) вручную и нажмите 'Сохранить'."
+        return htmx_alert(ui_result(True, "Импорт: успешно", details), status_code=200)
     return RedirectResponse(url="/settings?saved=1", status_code=303)
 
 
