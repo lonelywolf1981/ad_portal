@@ -1,0 +1,28 @@
+<div class="card shadow-sm mt-4">
+  <div class="card-body">
+    <h2 class="h6">Экспорт / импорт</h2>
+
+    <div class="small text-secondary mb-2">
+      Экспортируйте текущие настройки в JSON или импортируйте из JSON-файла.
+    </div>
+
+    <div class="d-flex flex-column gap-2">
+      <div class="d-flex flex-column flex-sm-row gap-2">
+        <a class="btn btn-outline-secondary" href="/settings/export.json" download>
+          Экспорт (без паролей)
+        </a>
+        <a class="btn btn-outline-secondary" href="/settings/export.json?include_secrets=1" download>
+          Экспорт (с паролями)
+        </a>
+      </div>
+
+      <form method="post" action="/settings/import" enctype="multipart/form-data" class="d-flex flex-column gap-2">
+        <input class="form-control" type="file" name="file" accept="application/json">
+        <button type="submit" class="btn btn-outline-primary">Импортировать</button>
+        <div class="form-text">
+          Если в импортируемом файле пароли пустые — текущие пароли сохраняются.
+        </div>
+      </form>
+    </div>
+  </div>
+</div>

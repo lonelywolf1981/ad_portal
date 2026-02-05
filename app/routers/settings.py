@@ -1,7 +1,12 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Form, Request, UploadFile, File
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+import ipaddress
+import json
+import inspect
+from types import SimpleNamespace
+
+from fastapi import APIRouter, File, Form, Request, UploadFile
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from ..ad_utils import split_group_dns
 from ..deps import require_session_or_hx_redirect
@@ -12,86 +17,139 @@ from ..services import (
     groups_dn_to_name_map,
     save_settings,
 )
-
-from ..services.settings import (
-    AppSettingsSchema,
-    export_settings,
-    import_settings,
-    get_settings as get_settings_typed,
-    save_settings as save_settings_typed,
-    validate_ad,
-    validate_host_query,
-    validate_net_scan,
-)
 from ..timezone_utils import format_ru_local
 from ..webui import templates
+
+from ..ad.client import ADClient
+from ..ad.models import ADConfig
+from ..crypto import decrypt_str
+from ..host_query.api import find_logged_on_users
 
 
 router = APIRouter()
 
 
-def _alert_html(ok: bool, message: str, details: str = "", hints: list[str] | None = None) -> str:
-    cls = "alert-success" if ok else "alert-danger"
-    extra = ""
-    if details:
-        extra += f"<div class='small text-secondary mt-1'>{details}</div>"
-    if hints:
-        li = "".join([f"<li>{h}</li>" for h in hints])
-        extra += f"<ul class='small mt-2 mb-0'>{li}</ul>"
-    return f"<div class='alert {cls} py-2 mb-0'>{message}{extra}</div>"
+
+def _dict_to_obj(x):
+    """Convert nested dict/list into objects with attribute access.
+
+    Это нужно для совместимости: новая реализация `save_settings` может ожидать объект
+    (pydantic/dataclass), а старая передавала обычный dict.
+    """
+    if isinstance(x, dict):
+        return SimpleNamespace(**{k: _dict_to_obj(v) for k, v in x.items()})
+    if isinstance(x, list):
+        return [_dict_to_obj(v) for v in x]
+    return x
 
 
-def _build_settings_for_validation(db, form: dict) -> AppSettingsSchema:
-    """Merge current DB settings with form overrides.
+def _truthy_flag(v) -> bool:
+    """Normalize HTML form flags (checkboxes) into bool."""
+    if isinstance(v, bool):
+        return v
+    if v is None:
+        return False
+    s = str(v).strip().lower()
+    return s in {"1", "true", "on", "yes", "y"}
 
-    - Empty password fields keep existing decrypted values.
+
+def _coerce_settings_payload(payload: dict) -> object:
+    """Coerce legacy flat payload into the new typed settings schema.
+
+    `app.services.settings.storage.save_settings()` expects `AppSettingsSchema`.
+    The settings form historically posted a flat dict.
     """
 
-    cur = get_settings_typed(db)
+    # Lazy import to avoid heavy imports / cycles at module import time.
+    from ..services.settings import AppSettingsSchema, CURRENT_SCHEMA_VERSION
 
-    # AD overrides
-    cur.auth_mode = (form.get("auth_mode") or cur.auth_mode or "local").strip() or "local"
-    cur.ad.dc_short = (form.get("ad_dc_short") or cur.ad.dc_short or "").strip()
-    cur.ad.domain = (form.get("ad_domain") or cur.ad.domain or "").strip()
-    cur.ad.conn_mode = (form.get("ad_conn_mode") or cur.ad.conn_mode or "ldaps").strip()  # type: ignore[assignment]
-    cur.ad.bind_username = (form.get("ad_bind_username") or cur.ad.bind_username or "").strip()
-    if form.get("ad_bind_password"):
-        cur.ad.bind_password = form.get("ad_bind_password") or ""
+    if not isinstance(payload, dict):
+        return payload
 
-    # Host query overrides
-    cur.host_query.username = (form.get("host_query_username") or cur.host_query.username or "").strip()
-    if form.get("host_query_password"):
-        cur.host_query.password = form.get("host_query_password") or ""
+    # If payload already looks like the typed schema, validate as-is.
+    if isinstance(payload.get("ad"), dict) and isinstance(payload.get("host_query"), dict) and isinstance(
+        payload.get("net_scan"), dict
+    ):
+        return AppSettingsSchema.model_validate(payload)
+
+    data = {
+        "schema_version": int(payload.get("schema_version") or CURRENT_SCHEMA_VERSION),
+        "auth_mode": (payload.get("auth_mode") or "local").strip() or "local",
+        "ad": {
+            "dc_short": payload.get("ad_dc_short", ""),
+            "domain": payload.get("ad_domain", ""),
+            "conn_mode": (payload.get("ad_conn_mode") or "ldaps").strip() or "ldaps",
+            "bind_username": payload.get("ad_bind_username", ""),
+            "bind_password": payload.get("ad_bind_password", ""),
+            "allowed_app_group_dns": payload.get("allowed_app_group_dns") or [],
+            "allowed_settings_group_dns": payload.get("allowed_settings_group_dns") or [],
+        },
+        "host_query": {
+            "username": payload.get("host_query_username", ""),
+            "password": payload.get("host_query_password", ""),
+            "timeout_s": int(payload.get("host_query_timeout_s") or 60),
+        },
+        "net_scan": {
+            "enabled": _truthy_flag(payload.get("net_scan_enabled")),
+            "cidrs": _parse_cidrs(payload.get("net_scan_cidrs", "")),
+            "interval_min": int(payload.get("net_scan_interval_min") or 120),
+            "concurrency": int(payload.get("net_scan_concurrency") or 64),
+            "method_timeout_s": int(payload.get("net_scan_method_timeout_s") or 20),
+            "probe_timeout_ms": int(payload.get("net_scan_probe_timeout_ms") or 350),
+        },
+    }
+
+    return AppSettingsSchema.model_validate(data)
+
+
+def _call_save_settings_compat(db, st, payload: dict) -> None:
+    """Compatibility shim for settings persistence.
+
+    В кодовой базе встречаются два варианта сигнатуры `save_settings`:
+
+    1) legacy:
+       save_settings(db, st, payload)
+
+    2) new (рефакторинг в app/services/settings/*):
+       save_settings(db, payload)
+
+    Чтобы не ловить 500 из-за несовпадения сигнатуры, выбираем режим по introspection.
+    """
+
     try:
-        cur.host_query.timeout_s = int(form.get("host_query_timeout_s") or cur.host_query.timeout_s or 60)
-    except Exception:
-        pass
-    cur.host_query.test_host = (form.get("host_query_test_host") or cur.host_query.test_host or "").strip()
+        sig = inspect.signature(save_settings)
+        pos_params = [
+            p
+            for p in sig.parameters.values()
+            if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)
+        ]
+        if len(pos_params) <= 2:
+            # New implementation expects a typed `AppSettingsSchema` tree.
+            save_settings(db, _coerce_settings_payload(payload))
+        else:
+            save_settings(db, st, payload)
+    except (TypeError, ValueError):
+        # Fallback: try legacy first, then the new one.
+        try:
+            save_settings(db, st, payload)
+        except TypeError:
+            save_settings(db, _coerce_settings_payload(payload))
 
-    # Net scan overrides
-    cur.net_scan.enabled = bool(form.get("net_scan_enabled"))
-    cur.net_scan.cidrs = [x.strip() for x in (form.get("net_scan_cidrs") or "").splitlines() if x.strip()]
-    for k in ("net_scan_interval_min", "net_scan_concurrency", "net_scan_method_timeout_s", "net_scan_probe_timeout_ms"):
-        if k in form and form.get(k) not in (None, ""):
-            try:
-                v = int(form.get(k))
-            except Exception:
-                continue
-            if k == "net_scan_interval_min":
-                cur.net_scan.interval_min = v
-            elif k == "net_scan_concurrency":
-                cur.net_scan.concurrency = v
-            elif k == "net_scan_method_timeout_s":
-                cur.net_scan.method_timeout_s = v
-            elif k == "net_scan_probe_timeout_ms":
-                cur.net_scan.probe_timeout_ms = v
 
-    # group selection overrides (UI sends lists)
-    cur.ad.allowed_app_group_dns = list(form.get("allowed_app_group_dns") or cur.ad.allowed_app_group_dns or [])
-    cur.ad.allowed_settings_group_dns = list(form.get("allowed_settings_group_dns") or cur.ad.allowed_settings_group_dns or [])
+def _alert(ok: bool, message: str, details: str = "") -> str:
+    cls = "alert-success" if ok else "alert-danger"
+    det = f"<div class='small text-secondary mt-1'>{details}</div>" if details else ""
+    return f"<div class='alert {cls} py-2 mb-0'>{message}{det}</div>"
 
-    # Re-validate to apply constraints/normalization.
-    return AppSettingsSchema.model_validate(cur.model_dump())
+
+def _parse_cidrs(text: str) -> list[str]:
+    out: list[str] = []
+    for raw in (text or "").splitlines():
+        s = raw.strip()
+        if not s or s.startswith("#") or s.startswith(";"):
+            continue
+        out.append(s)
+    return out
 
 
 @router.get("/settings", response_class=HTMLResponse)
@@ -160,7 +218,6 @@ def settings_save(
     host_query_username: str = Form(""),
     host_query_password: str = Form(""),
     host_query_timeout_s: int = Form(60),
-    host_query_test_host: str = Form(""),
     net_scan_enabled: str = Form(""),
     net_scan_cidrs: str = Form(""),
     net_scan_interval_min: int = Form(120),
@@ -181,7 +238,7 @@ def settings_save(
 
     with db_session() as db:
         st = get_or_create_settings(db)
-        save_settings(
+        _call_save_settings_compat(
             db,
             st,
             {
@@ -208,48 +265,163 @@ def settings_save(
 
 
 @router.post("/settings/validate/ad", response_class=HTMLResponse)
-async def settings_validate_ad(request: Request):
+def settings_validate_ad(
+    request: Request,
+    ad_dc_short: str = Form(""),
+    ad_domain: str = Form(""),
+    ad_conn_mode: str = Form("ldaps"),
+    ad_bind_username: str = Form(""),
+    ad_bind_password: str = Form(""),
+):
+    """Validate AD connection/bind without touching group cache."""
+
     auth = require_session_or_hx_redirect(request)
     if not isinstance(auth, dict):
         return auth
     if not auth.get("settings", False):
-        return HTMLResponse(content=_alert_html(False, "Доступ запрещён."), status_code=403)
+        return HTMLResponse(content=_alert(False, "Доступ запрещён."), status_code=403)
 
-    form = dict(await request.form())
     with db_session() as db:
-        st = _build_settings_for_validation(db, form)
-    res = validate_ad(st)
-    return HTMLResponse(content=_alert_html(res.ok, res.message, res.details, res.hints), status_code=200)
+        st = get_or_create_settings(db)
+
+        dc = (ad_dc_short or st.ad_dc_short or "").strip()
+        domain = (ad_domain or st.ad_domain or "").strip()
+        mode = (ad_conn_mode or ("ldaps" if st.ad_use_ssl else "starttls") or "ldaps").strip()
+
+        bind_user = (ad_bind_username or st.ad_bind_username or "").strip()
+        bind_pw = (ad_bind_password or "").strip() or decrypt_str(st.ad_bind_password_enc)
+
+    if not (dc and domain and bind_user and bind_pw):
+        return HTMLResponse(content=_alert(False, "AD: заполните DC/домен/bind user и пароль."), status_code=200)
+
+    if mode == "ldaps":
+        port, use_ssl, starttls = 636, True, False
+    else:
+        port, use_ssl, starttls = 389, False, True
+
+    try:
+        cfg = ADConfig(
+            dc_short=dc,
+            domain=domain,
+            port=port,
+            use_ssl=use_ssl,
+            starttls=starttls,
+            bind_username=bind_user,
+            bind_password=bind_pw,
+            tls_validate=bool(getattr(st, "ad_tls_validate", False)),
+            ca_pem=getattr(st, "ad_ca_pem", "") or "",
+        )
+        client = ADClient(cfg)
+        ok, res = client.service_bind()
+        if ok:
+            return HTMLResponse(content=_alert(True, "AD: подключение и bind успешны."), status_code=200)
+        return HTMLResponse(
+            content=_alert(False, "AD: не удалось подключиться или выполнить bind", details=f"Ошибка bind: {res}"),
+            status_code=200,
+        )
+    except Exception as e:
+        return HTMLResponse(content=_alert(False, "AD: ошибка проверки", details=str(e)), status_code=200)
 
 
 @router.post("/settings/validate/host", response_class=HTMLResponse)
-async def settings_validate_host(request: Request):
+def settings_validate_host(
+    request: Request,
+    host_query_test_host: str = Form(""),
+    host_query_username: str = Form(""),
+    host_query_password: str = Form(""),
+    host_query_timeout_s: int = Form(60),
+):
     auth = require_session_or_hx_redirect(request)
     if not isinstance(auth, dict):
         return auth
     if not auth.get("settings", False):
-        return HTMLResponse(content=_alert_html(False, "Доступ запрещён."), status_code=403)
+        return HTMLResponse(content=_alert(False, "Доступ запрещён."), status_code=403)
 
-    form = dict(await request.form())
+    test_host = (host_query_test_host or "").strip()
+    if not test_host:
+        return HTMLResponse(
+            content=_alert(False, "Host query: укажите тестовый хост (hostname или IP)."),
+            status_code=200,
+        )
+
     with db_session() as db:
-        st = _build_settings_for_validation(db, form)
-    res = validate_host_query(st)
-    return HTMLResponse(content=_alert_html(res.ok, res.message, res.details, res.hints), status_code=200)
+        st = get_or_create_settings(db)
+        domain_suffix = (st.ad_domain or "").strip()
+
+        user = (host_query_username or st.host_query_username or "").strip()
+        pw = (host_query_password or "").strip() or decrypt_str(st.host_query_password_enc)
+        timeout = int(host_query_timeout_s or st.host_query_timeout_s or 60)
+
+    if not (user and pw):
+        return HTMLResponse(
+            content=_alert(False, "Host query: заполните user/password (пароль должен быть задан)."),
+            status_code=200,
+        )
+
+    try:
+        users, method, total_ms, attempts = find_logged_on_users(
+            test_host,
+            domain_suffix,
+            user,
+            pw,
+            per_method_timeout_s=timeout,
+        )
+        if users:
+            u = ", ".join(users[:5])
+            more = "…" if len(users) > 5 else ""
+            return HTMLResponse(
+                content=_alert(True, f"Host query: OK ({method}, {total_ms} ms)", details=f"Пользователи: {u}{more}"),
+                status_code=200,
+            )
+
+        # No users found is still a successful connectivity check.
+        last = attempts[-1].message if attempts else "Нет данных"
+        return HTMLResponse(
+            content=_alert(True, f"Host query: ответ получен ({total_ms} ms)", details=last),
+            status_code=200,
+        )
+    except Exception as e:
+        return HTMLResponse(content=_alert(False, "Host query: ошибка проверки", details=str(e)), status_code=200)
 
 
 @router.post("/settings/validate/net", response_class=HTMLResponse)
-async def settings_validate_net(request: Request):
+def settings_validate_net(
+    request: Request,
+    net_scan_enabled: str = Form(""),
+    net_scan_cidrs: str = Form(""),
+):
     auth = require_session_or_hx_redirect(request)
     if not isinstance(auth, dict):
         return auth
     if not auth.get("settings", False):
-        return HTMLResponse(content=_alert_html(False, "Доступ запрещён."), status_code=403)
+        return HTMLResponse(content=_alert(False, "Доступ запрещён."), status_code=403)
 
-    form = dict(await request.form())
-    with db_session() as db:
-        st = _build_settings_for_validation(db, form)
-    res = validate_net_scan(st)
-    return HTMLResponse(content=_alert_html(res.ok, res.message, res.details, res.hints), status_code=200)
+    if not bool(net_scan_enabled):
+        return HTMLResponse(content=_alert(True, "Net scan: выключено (это нормально)."), status_code=200)
+
+    cidrs = _parse_cidrs(net_scan_cidrs)
+    if not cidrs:
+        return HTMLResponse(content=_alert(False, "Net scan: включено, но CIDR не задан."), status_code=200)
+
+    bad: list[str] = []
+    too_big: list[str] = []
+    for raw in cidrs:
+        try:
+            net = ipaddress.ip_network(raw, strict=False)
+            if net.num_addresses > 65536:
+                too_big.append(str(net))
+        except Exception:
+            bad.append(raw)
+
+    if bad:
+        return HTMLResponse(content=_alert(False, "Net scan: ошибка CIDR", details="; ".join(bad)), status_code=200)
+    if too_big:
+        return HTMLResponse(
+            content=_alert(False, "Net scan: слишком большой диапазон", details="; ".join(too_big)),
+            status_code=200,
+        )
+
+    return HTMLResponse(content=_alert(True, "Net scan: проверка пройдена."), status_code=200)
 
 
 @router.get("/settings/export.json")
@@ -261,8 +433,32 @@ def settings_export_json(request: Request, include_secrets: int = 0):
         return JSONResponse({"ok": False, "message": "forbidden"}, status_code=403)
 
     with db_session() as db:
-        st = get_settings_typed(db)
-        payload = export_settings(st, include_secrets=bool(include_secrets))
+        st = get_or_create_settings(db)
+        payload = {
+            "auth_mode": st.auth_mode,
+            "ad": {
+                "dc": st.ad_dc_short,
+                "domain": st.ad_domain,
+                "conn_mode": "ldaps" if st.ad_use_ssl else "starttls",
+                "bind_username": st.ad_bind_username,
+                "bind_password": decrypt_str(st.ad_bind_password_enc) if include_secrets else "",
+            },
+            "host_query": {
+                "username": st.host_query_username,
+                "password": decrypt_str(st.host_query_password_enc) if include_secrets else "",
+                "timeout_s": st.host_query_timeout_s,
+            },
+            "net_scan": {
+                "enabled": bool(st.net_scan_enabled),
+                "cidrs": st.net_scan_cidrs,
+                "interval_min": st.net_scan_interval_min,
+                "concurrency": st.net_scan_concurrency,
+                "method_timeout_s": int(getattr(st, "net_scan_method_timeout_s", 20) or 20),
+                "probe_timeout_ms": st.net_scan_probe_timeout_ms,
+            },
+            "allowed_app_group_dns": split_group_dns(st.allowed_app_group_dns),
+            "allowed_settings_group_dns": split_group_dns(st.allowed_settings_group_dns),
+        }
 
     resp = JSONResponse(payload)
     resp.headers["Content-Disposition"] = "attachment; filename=ad_portal_settings.json"
@@ -282,13 +478,37 @@ async def settings_import_json(request: Request, file: UploadFile = File(...)):
 
     raw = await file.read()
     try:
-        imported = import_settings(raw)
-    except Exception as e:
-        return RedirectResponse(url=f"/settings?saved=0&import_err=1", status_code=303)
+        data = json.loads(raw.decode("utf-8", errors="replace"))
+    except Exception:
+        return RedirectResponse(url="/settings?saved=0&import_err=1", status_code=303)
+
+    # Map JSON -> form dict compatible with existing save_settings().
+    try:
+        form = {
+            "auth_mode": data.get("auth_mode") or "local",
+            "ad_dc_short": (data.get("ad") or {}).get("dc") or "",
+            "ad_domain": (data.get("ad") or {}).get("domain") or "",
+            "ad_conn_mode": (data.get("ad") or {}).get("conn_mode") or "ldaps",
+            "ad_bind_username": (data.get("ad") or {}).get("bind_username") or "",
+            "ad_bind_password": (data.get("ad") or {}).get("bind_password") or "",
+            "host_query_username": (data.get("host_query") or {}).get("username") or "",
+            "host_query_password": (data.get("host_query") or {}).get("password") or "",
+            "host_query_timeout_s": (data.get("host_query") or {}).get("timeout_s") or 60,
+            "net_scan_enabled": bool((data.get("net_scan") or {}).get("enabled")),
+            "net_scan_cidrs": (data.get("net_scan") or {}).get("cidrs") or "",
+            "net_scan_interval_min": (data.get("net_scan") or {}).get("interval_min") or 120,
+            "net_scan_concurrency": (data.get("net_scan") or {}).get("concurrency") or 64,
+            "net_scan_method_timeout_s": (data.get("net_scan") or {}).get("method_timeout_s") or 20,
+            "net_scan_probe_timeout_ms": (data.get("net_scan") or {}).get("probe_timeout_ms") or 350,
+            "allowed_app_group_dns": data.get("allowed_app_group_dns") or [],
+            "allowed_settings_group_dns": data.get("allowed_settings_group_dns") or [],
+        }
+    except Exception:
+        return RedirectResponse(url="/settings?saved=0&import_err=1", status_code=303)
 
     with db_session() as db:
-        # Keep existing secrets if import file has them blank (default export behavior).
-        save_settings_typed(db, imported, keep_secrets_if_blank=True)
+        st = get_or_create_settings(db)
+        save_settings(db, st, form)
 
     return RedirectResponse(url="/settings?saved=1", status_code=303)
 
