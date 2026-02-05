@@ -11,11 +11,16 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from ..ad_utils import split_group_dns
 from ..deps import require_session_or_hx_redirect
 from ..repo import db_session, get_or_create_settings
-from ..services import (
-    ad_test_and_load_groups,
-    get_groups_cache,
-    groups_dn_to_name_map,
-    save_settings,
+from ..services import ad_test_and_load_groups, get_groups_cache, groups_dn_to_name_map, save_settings
+from ..services.settings import (
+    AppSettingsSchema,
+    export_settings,
+    get_settings as get_typed_settings,
+    import_settings,
+    save_settings as save_typed_settings,
+    validate_ad,
+    validate_host_query,
+    validate_net_scan,
 )
 from ..timezone_utils import format_ru_local
 from ..webui import htmx_alert, templates, ui_result
@@ -147,6 +152,57 @@ def _alert_response(ok: bool, message: str, details: str = "", *, status_code: i
     return htmx_alert(ui_result(ok, message, details), status_code=status_code)
 
 
+def _effective_settings_from_form(db, form: dict) -> AppSettingsSchema:
+    """Build effective settings (typed schema) for validate endpoints.
+
+    - Uses DB as the source of truth (including decrypted secrets).
+    - Overlays values from the current form (if provided).
+    - If a password field is empty in the form, keeps existing secret.
+    """
+
+    cur = get_typed_settings(db)
+    patch: dict = {
+        "schema_version": cur.schema_version,
+        "core": cur.core.model_dump(),
+        "auth": {"mode": (form.get("auth_mode") or cur.auth.mode)},
+        "auth_mode": (form.get("auth_mode") or cur.auth.mode),
+        "ad": cur.ad.model_dump(),
+        "host_query": cur.host_query.model_dump(),
+        "net_scan": cur.net_scan.model_dump(),
+    }
+
+    # AD
+    if form.get("ad_dc_short") is not None:
+        patch["ad"]["dc_short"] = form.get("ad_dc_short") or patch["ad"]["dc_short"]
+    if form.get("ad_domain") is not None:
+        patch["ad"]["domain"] = form.get("ad_domain") or patch["ad"]["domain"]
+    if form.get("ad_conn_mode"):
+        patch["ad"]["conn_mode"] = (form.get("ad_conn_mode") or "").strip() or patch["ad"]["conn_mode"]
+    if form.get("ad_bind_username") is not None:
+        patch["ad"]["bind_username"] = form.get("ad_bind_username") or patch["ad"]["bind_username"]
+    if (form.get("ad_bind_password") or "").strip():
+        patch["ad"]["bind_password"] = form.get("ad_bind_password")
+
+    # Host query
+    if form.get("host_query_username") is not None:
+        patch["host_query"]["username"] = form.get("host_query_username") or patch["host_query"]["username"]
+    if (form.get("host_query_password") or "").strip():
+        patch["host_query"]["password"] = form.get("host_query_password")
+    if form.get("host_query_timeout_s") is not None:
+        try:
+            patch["host_query"]["timeout_s"] = int(form.get("host_query_timeout_s") or patch["host_query"]["timeout_s"])
+        except Exception:
+            pass
+    if form.get("host_query_test_host") is not None:
+        patch["host_query"]["test_host"] = (form.get("host_query_test_host") or "").strip()
+
+    # Net scan
+    patch["net_scan"]["enabled"] = bool(form.get("net_scan_enabled"))
+    patch["net_scan"]["cidrs"] = _parse_cidrs(form.get("net_scan_cidrs") or "")
+
+    return AppSettingsSchema.model_validate(patch)
+
+
 def _parse_cidrs(text: str) -> list[str]:
     out: list[str] = []
     for raw in (text or "").splitlines():
@@ -155,6 +211,17 @@ def _parse_cidrs(text: str) -> list[str]:
             continue
         out.append(s)
     return out
+
+
+def _render_validate_result(res) -> HTMLResponse:
+    details = res.details or ""
+    if getattr(res, "hints", None):
+        hints = [h for h in (res.hints or []) if (h or "").strip()]
+        if hints:
+            if details:
+                details += "\n\n"
+            details += "Рекомендации:\n" + "\n".join(f"• {h}" for h in hints)
+    return _alert_response(bool(res.ok), res.message, details)
 
 
 @router.get("/settings", response_class=HTMLResponse)
@@ -278,7 +345,7 @@ def settings_validate_ad(
     ad_bind_username: str = Form(""),
     ad_bind_password: str = Form(""),
 ):
-    """Validate AD connection/bind without touching group cache."""
+    """Validate AD connection/bind (Stage 1 validator; without saving)."""
 
     auth = require_session_or_hx_redirect(request)
     if not isinstance(auth, dict):
@@ -287,42 +354,20 @@ def settings_validate_ad(
         return _alert_response(False, "Доступ запрещён.", status_code=403)
 
     with db_session() as db:
-        st = get_or_create_settings(db)
-
-        dc = (ad_dc_short or st.ad_dc_short or "").strip()
-        domain = (ad_domain or st.ad_domain or "").strip()
-        mode = (ad_conn_mode or ("ldaps" if st.ad_use_ssl else "starttls") or "ldaps").strip()
-
-        bind_user = (ad_bind_username or st.ad_bind_username or "").strip()
-        bind_pw = (ad_bind_password or "").strip() or decrypt_str(st.ad_bind_password_enc)
-
-    if not (dc and domain and bind_user and bind_pw):
-        return _alert_response(False, "AD: заполните DC/домен/bind user и пароль.")
-
-    if mode == "ldaps":
-        port, use_ssl, starttls = 636, True, False
-    else:
-        port, use_ssl, starttls = 389, False, True
-
-    try:
-        cfg = ADConfig(
-            dc_short=dc,
-            domain=domain,
-            port=port,
-            use_ssl=use_ssl,
-            starttls=starttls,
-            bind_username=bind_user,
-            bind_password=bind_pw,
-            tls_validate=bool(getattr(st, "ad_tls_validate", False)),
-            ca_pem=getattr(st, "ad_ca_pem", "") or "",
+        eff = _effective_settings_from_form(
+            db,
+            {
+                "ad_dc_short": ad_dc_short,
+                "ad_domain": ad_domain,
+                "ad_conn_mode": ad_conn_mode,
+                "ad_bind_username": ad_bind_username,
+                "ad_bind_password": ad_bind_password,
+                # keep existing secrets if blank
+            },
         )
-        client = ADClient(cfg)
-        ok, res = client.service_bind()
-        if ok:
-            return _alert_response(True, "AD: подключение и bind успешны.")
-        return _alert_response(False, "AD: не удалось подключиться или выполнить bind", details=f"Ошибка bind: {res}")
-    except Exception as e:
-        return _alert_response(False, "AD: ошибка проверки", details=str(e))
+
+    res = validate_ad(eff)
+    return _render_validate_result(res)
 
 
 @router.post("/settings/validate/host", response_class=HTMLResponse)
@@ -339,39 +384,19 @@ def settings_validate_host(
     if not auth.get("settings", False):
         return _alert_response(False, "Доступ запрещён.", status_code=403)
 
-    test_host = (host_query_test_host or "").strip()
-    if not test_host:
-        return _alert_response(False, "Host query: укажите тестовый хост (hostname или IP).")
-
     with db_session() as db:
-        st = get_or_create_settings(db)
-        domain_suffix = (st.ad_domain or "").strip()
-
-        user = (host_query_username or st.host_query_username or "").strip()
-        pw = (host_query_password or "").strip() or decrypt_str(st.host_query_password_enc)
-        timeout = int(host_query_timeout_s or st.host_query_timeout_s or 60)
-
-    if not (user and pw):
-        return _alert_response(False, "Host query: заполните user/password (пароль должен быть задан).")
-
-    try:
-        users, method, total_ms, attempts = find_logged_on_users(
-            test_host,
-            domain_suffix,
-            user,
-            pw,
-            per_method_timeout_s=timeout,
+        eff = _effective_settings_from_form(
+            db,
+            {
+                "host_query_test_host": host_query_test_host,
+                "host_query_username": host_query_username,
+                "host_query_password": host_query_password,
+                "host_query_timeout_s": host_query_timeout_s,
+            },
         )
-        if users:
-            u = ", ".join(users[:5])
-            more = "…" if len(users) > 5 else ""
-            return _alert_response(True, f"Host query: OK ({method}, {total_ms} ms)", details=f"Пользователи: {u}{more}")
 
-        # No users found is still a successful connectivity check.
-        last = attempts[-1].message if attempts else "Нет данных"
-        return _alert_response(True, f"Host query: ответ получен ({total_ms} ms)", details=last)
-    except Exception as e:
-        return _alert_response(False, "Host query: ошибка проверки", details=str(e))
+    res = validate_host_query(eff)
+    return _render_validate_result(res)
 
 
 @router.post("/settings/validate/net", response_class=HTMLResponse)
@@ -386,29 +411,17 @@ def settings_validate_net(
     if not auth.get("settings", False):
         return _alert_response(False, "Доступ запрещён.", status_code=403)
 
-    if not bool(net_scan_enabled):
-        return _alert_response(True, "Net scan: выключено (это нормально).")
+    with db_session() as db:
+        eff = _effective_settings_from_form(
+            db,
+            {
+                "net_scan_enabled": net_scan_enabled,
+                "net_scan_cidrs": net_scan_cidrs,
+            },
+        )
 
-    cidrs = _parse_cidrs(net_scan_cidrs)
-    if not cidrs:
-        return _alert_response(False, "Net scan: включено, но CIDR не задан.")
-
-    bad: list[str] = []
-    too_big: list[str] = []
-    for raw in cidrs:
-        try:
-            net = ipaddress.ip_network(raw, strict=False)
-            if net.num_addresses > 65536:
-                too_big.append(str(net))
-        except Exception:
-            bad.append(raw)
-
-    if bad:
-        return _alert_response(False, "Net scan: ошибка CIDR", details="; ".join(bad))
-    if too_big:
-        return _alert_response(False, "Net scan: слишком большой диапазон", details="; ".join(too_big))
-
-    return _alert_response(True, "Net scan: проверка пройдена.")
+    res = validate_net_scan(eff)
+    return _render_validate_result(res)
 
 
 @router.get("/settings/export.json")
@@ -420,35 +433,12 @@ def settings_export_json(request: Request, include_secrets: int = 0):
         return JSONResponse({"ok": False, "message": "forbidden"}, status_code=403)
 
     with db_session() as db:
-        st = get_or_create_settings(db)
-        payload = {
-            "auth_mode": st.auth_mode,
-            "ad": {
-                "dc": st.ad_dc_short,
-                "domain": st.ad_domain,
-                "conn_mode": "ldaps" if st.ad_use_ssl else "starttls",
-                "bind_username": st.ad_bind_username,
-                "bind_password": decrypt_str(st.ad_bind_password_enc) if include_secrets else "",
-            },
-            "host_query": {
-                "username": st.host_query_username,
-                "password": decrypt_str(st.host_query_password_enc) if include_secrets else "",
-                "timeout_s": st.host_query_timeout_s,
-            },
-            "net_scan": {
-                "enabled": bool(st.net_scan_enabled),
-                "cidrs": st.net_scan_cidrs,
-                "interval_min": st.net_scan_interval_min,
-                "concurrency": st.net_scan_concurrency,
-                "method_timeout_s": int(getattr(st, "net_scan_method_timeout_s", 20) or 20),
-                "probe_timeout_ms": st.net_scan_probe_timeout_ms,
-            },
-            "allowed_app_group_dns": split_group_dns(st.allowed_app_group_dns),
-            "allowed_settings_group_dns": split_group_dns(st.allowed_settings_group_dns),
-        }
+        data = get_typed_settings(db)
+        payload = export_settings(data, include_secrets=bool(include_secrets))
 
+    schema_v = int(payload.get("schema_version") or 0)
     resp = JSONResponse(payload)
-    resp.headers["Content-Disposition"] = "attachment; filename=ad_portal_settings.json"
+    resp.headers["Content-Disposition"] = f"attachment; filename=ad_portal_settings_v{schema_v}.json"
     return resp
 
 
@@ -467,81 +457,23 @@ async def settings_import_json(request: Request, file: UploadFile = File(...)):
 
     raw = await file.read()
     try:
-        data = json.loads(raw.decode("utf-8", errors="replace"))
-    except Exception:
+        imported = import_settings(raw)
+    except Exception as e:
         if hx:
-            return htmx_alert(ui_result(False, "Импорт: ошибка", "Некорректный JSON"), status_code=200)
-        return RedirectResponse(url="/settings?saved=0&import_err=1", status_code=303)
-
-    # Map JSON -> form dict compatible with existing save_settings().
-    try:
-        ad = data.get("ad") or {}
-        hq = data.get("host_query") or {}
-        ns = data.get("net_scan") or {}
-
-        # Tolerant picks (we've had multiple JSON shapes over iterations).
-        def pick(*vals: object) -> object:
-            for v in vals:
-                if v is None:
-                    continue
-                if isinstance(v, str):
-                    if v.strip():
-                        return v
-                    continue
-                return v
-            return ""
-
-        cidrs_val = ns.get("cidrs")
-        if isinstance(cidrs_val, list):
-            cidrs_text = "\n".join(str(x) for x in cidrs_val if str(x).strip())
-        else:
-            cidrs_text = str(cidrs_val or "")
-
-        form = {
-            # auth
-            "auth_mode": pick(data.get("auth_mode"), (data.get("auth") or {}).get("mode"), "local") or "local",
-
-            # ad
-            "ad_dc_short": pick(ad.get("dc"), ad.get("dc_short"), ad.get("dcShort"), data.get("ad_dc_short"), ""),
-            "ad_domain": pick(ad.get("domain"), data.get("ad_domain"), ""),
-            "ad_conn_mode": pick(ad.get("conn_mode"), ad.get("connMode"), data.get("ad_conn_mode"), "ldaps") or "ldaps",
-            "ad_bind_username": pick(ad.get("bind_username"), ad.get("bindUser"), data.get("ad_bind_username"), ""),
-            "ad_bind_password": pick(ad.get("bind_password"), ad.get("bindPassword"), data.get("ad_bind_password"), ""),
-
-            # host_query
-            "host_query_username": pick(hq.get("username"), data.get("host_query_username"), ""),
-            "host_query_password": pick(hq.get("password"), data.get("host_query_password"), ""),
-            "host_query_timeout_s": int(pick(hq.get("timeout_s"), data.get("host_query_timeout_s"), 60) or 60),
-
-            # net_scan
-            "net_scan_enabled": bool(pick(ns.get("enabled"), data.get("net_scan_enabled"), False)),
-            "net_scan_cidrs": cidrs_text,
-            "net_scan_interval_min": int(pick(ns.get("interval_min"), data.get("net_scan_interval_min"), 120) or 120),
-            "net_scan_concurrency": int(pick(ns.get("concurrency"), data.get("net_scan_concurrency"), 64) or 64),
-            "net_scan_method_timeout_s": int(pick(ns.get("method_timeout_s"), data.get("net_scan_method_timeout_s"), 20) or 20),
-            "net_scan_probe_timeout_ms": int(pick(ns.get("probe_timeout_ms"), data.get("net_scan_probe_timeout_ms"), 350) or 350),
-
-            "allowed_app_group_dns": data.get("allowed_app_group_dns") or [],
-            "allowed_settings_group_dns": data.get("allowed_settings_group_dns") or [],
-        }
-    except Exception:
-        if hx:
-            return htmx_alert(ui_result(False, "Импорт: ошибка", "Не удалось применить настройки"), status_code=200)
+            return htmx_alert(ui_result(False, "Импорт: ошибка", str(e)), status_code=200)
         return RedirectResponse(url="/settings?saved=0&import_err=1", status_code=303)
 
     with db_session() as db:
-        st = get_or_create_settings(db)
-        # Если файл был экспортирован "без паролей", то секреты (bind/query) окажутся пустыми.
-        # В таком случае импорт применит всё остальное, но для работы AD bind нужно
-        # либо импортировать "с паролями", либо ввести пароль вручную и нажать "Сохранить".
-        missing: list[str] = []
-        if not (form.get("ad_bind_password") or "").strip() and not (getattr(st, "ad_bind_password_enc", "") or ""):
-            missing.append("AD bind password")
-        if not (form.get("host_query_password") or "").strip() and not (getattr(st, "host_query_password_enc", "") or ""):
-            missing.append("Host query password")
+        # Keep secrets if the imported file redacted them.
+        save_typed_settings(db, imported, keep_secrets_if_blank=True)
 
-        # Keep import compatible with both legacy and the refactored settings storage.
-        _call_save_settings_compat(db, st, form)
+        # Re-read to see what is effectively present after merge.
+        eff = get_typed_settings(db)
+        missing: list[str] = []
+        if not (eff.ad.bind_password or "").strip():
+            missing.append("AD bind password")
+        if not (eff.host_query.password or "").strip():
+            missing.append("Host query password")
 
     if hx:
         details = "Настройки применены"

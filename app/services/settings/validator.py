@@ -7,8 +7,120 @@ from typing import Any
 
 from ...ad import ADClient, ADConfig
 from ...host_query.api import find_logged_on_users
+from ...utils.net import short_hostname
 
 from .schema import AppSettingsSchema
+
+
+def _first_dns_server_from_cidrs(cidrs: list[str]) -> str:
+    """Choose resolver like we do in net_scan: first CIDR network + 1 (first usable).
+
+    Example: 192.168.72.0/26 -> 192.168.72.1
+    """
+
+    if not cidrs:
+        return ""
+    raw = (cidrs[0] or "").strip()
+    if not raw:
+        return ""
+    try:
+        net = ipaddress.ip_network(raw, strict=False)
+        if not isinstance(net, ipaddress.IPv4Network):
+            return ""
+        dns_int = int(net.network_address) + 1
+        dns_ip = ipaddress.ip_address(dns_int)
+        return str(dns_ip) if dns_ip in net else ""
+    except Exception:
+        return ""
+
+
+def _resolve_a_via_server(name: str, dns_server: str, *, timeout_s: float = 1.2) -> str:
+    """Resolve A record directly via a given DNS server (best-effort).
+
+    Uses dnspython if available; returns "" if not resolvable.
+    """
+
+    name = (name or "").strip().rstrip(".")
+    dns_server = (dns_server or "").strip()
+    if not name or not dns_server:
+        return ""
+    try:
+        import dns.resolver  # type: ignore
+
+        r = dns.resolver.Resolver(configure=False)
+        r.nameservers = [dns_server]
+        r.timeout = float(timeout_s)
+        r.lifetime = float(timeout_s)
+        ans = r.resolve(name, "A")
+        for rr in ans:
+            return rr.to_text()
+    except Exception:
+        return ""
+    return ""
+
+
+def _resolve_a_system(name: str) -> str:
+    """Resolve via system resolver inside container."""
+
+    name = (name or "").strip()
+    if not name:
+        return ""
+    try:
+        return socket.gethostbyname(name)
+    except Exception:
+        return ""
+
+
+@dataclass(frozen=True)
+class ResolvedHost:
+    input_host: str
+    query_name: str
+    ip: str
+    display_name: str
+
+
+def resolve_test_host(settings: AppSettingsSchema, host: str) -> ResolvedHost:
+    """Resolve test host like the legacy behavior:
+
+    - If CIDR(s) are configured: try resolving via per-scan DNS (first CIDR network+1).
+    - If host is short (no dot) and AD domain is configured: also try FQDN.
+    - Fall back to system resolver.
+    - UI should display short hostname (without domain).
+    """
+
+    raw = (host or "").strip()
+    if not raw:
+        raise RuntimeError("empty host")
+
+    # If IP is provided — accept as-is.
+    try:
+        ip = ipaddress.ip_address(raw)
+        return ResolvedHost(raw, raw, str(ip), raw)
+    except Exception:
+        pass
+
+    candidates: list[str] = [raw]
+    if "." not in raw:
+        domain = (settings.ad.domain or "").strip().lstrip(".")
+        if domain:
+            candidates.append(f"{raw}.{domain}")
+
+    dns_server = _first_dns_server_from_cidrs(list(settings.net_scan.cidrs or []))
+
+    # 1) Prefer explicit DNS (legacy behavior)
+    if dns_server:
+        for name in candidates:
+            ip = _resolve_a_via_server(name, dns_server, timeout_s=1.2)
+            if ip:
+                return ResolvedHost(raw, name, ip, short_hostname(raw))
+
+    # 2) Fallback to system resolver
+    for name in candidates:
+        ip = _resolve_a_system(name)
+        if ip:
+            return ResolvedHost(raw, name, ip, short_hostname(raw))
+
+    raise RuntimeError(f"не удалось разрешить хост {raw}")
 
 
 @dataclass
@@ -105,11 +217,21 @@ def validate_host_query(settings: AppSettingsSchema) -> ValidateResult:
             details="Для полной проверки укажите тестовый хост и нажмите “Проверить”.",
         )
 
-    # DNS
+    # DNS (legacy behavior: prefer resolver derived from the first scan CIDR)
     try:
-        ip = socket.gethostbyname(host)
+        resolved = resolve_test_host(settings, host)
+        ip = resolved.ip
     except Exception as e:
-        return ValidateResult(False, f"Host query: не удалось разрешить хост {host}", details=str(e))
+        return ValidateResult(
+            False,
+            f"Host query: не удалось разрешить хост {host}",
+            details=str(e),
+            hints=[
+                "Попробуйте указать FQDN (host.domain.local)",
+                "Проверьте, что в настройках Net scan задан корректный CIDR (резолвер берётся как network+1)",
+                "Либо пропишите DNS AD для контейнеров Docker (services.web.dns)",
+            ],
+        )
 
     # TCP reachability probes (best-effort; Windows host may block some ports)
     probes = [(445, "SMB/445"), (5985, "WinRM/HTTP 5985"), (5986, "WinRM/HTTPS 5986")]
@@ -124,6 +246,8 @@ def validate_host_query(settings: AppSettingsSchema) -> ValidateResult:
             closed_ports.append(label)
 
     details = f"{host} → {ip}"
+    if 'resolved' in locals() and getattr(resolved, "query_name", host) != host:
+        details += f" | резолв: {resolved.query_name}"
     if open_ports:
         details += " | доступно: " + ", ".join(open_ports)
     if closed_ports:

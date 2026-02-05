@@ -66,6 +66,8 @@ class AppSettings(Base):
     net_scan_cidrs: Mapped[str] = mapped_column(Text, default="", nullable=False)  # newline-separated CIDR list
     net_scan_interval_min: Mapped[int] = mapped_column(Integer, default=120, nullable=False)
     net_scan_concurrency: Mapped[int] = mapped_column(Integer, default=64, nullable=False)
+    # Per-method timeout used by background scan (WinRM/WMI/SMB). Separate from host_query_timeout_s.
+    net_scan_method_timeout_s: Mapped[int] = mapped_column(Integer, default=20, nullable=False)
     net_scan_probe_timeout_ms: Mapped[int] = mapped_column(Integer, default=350, nullable=False)
 
     net_scan_last_run_ts: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
