@@ -239,9 +239,16 @@ def scan_presence(
         except Exception:
             return ip, [], "", "", True
 
+    # IMPORTANT:
+    # Do NOT use executor.map here.
+    # map() yields results in *input order* (head-of-line blocking): a single slow/hung host
+    # at the start of a subnet can make the whole scan look "stuck" for a long time.
+    # Using as_completed() allows fast hosts to be processed immediately and the scan to
+    # make visible progress even with a few problematic IPs.
     with concurrent.futures.ThreadPoolExecutor(max_workers=conc) as ex:
-        # executor.map is more lightweight than managing futures/as_completed for a large host list.
-        for ip2, users, method, hostname, is_err in ex.map(work_safe, ips):
+        futs: list[concurrent.futures.Future] = [ex.submit(work_safe, ip) for ip in ips]
+        for fut in concurrent.futures.as_completed(futs):
+            ip2, users, method, hostname, is_err = fut.result()
             probed += 1
             if is_err:
                 errors += 1
