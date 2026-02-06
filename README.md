@@ -2,10 +2,10 @@
 
 **AD Portal** — веб-портал для инфраструктуры **Active Directory**, предназначенный для справочных задач и контроля доступа.
 
-[![License](https://img.shields.io/github/license/your-username/ad-portal)](LICENSE)
-[![Issues](https://img.shields.io/github/issues/your-username/ad-portal)](issues)
-[![Stars](https://img.shields.io/github/stars/your-username/ad-portal)](stargazers)
-[![Forks](https://img.shields.io/github/forks/your-username/ad-portal)](network)
+[![License](https://img.shields.io/github/license/lonelywolf1981/ad_portal)](LICENSE)
+[![Issues](https://img.shields.io/github/issues/lonelywolf1981/ad_portal)](issues)
+[![Stars](https://img.shields.io/github/stars/lonelywolf1981/ad_portal)](stargazers)
+[![Forks](https://img.shields.io/github/forks/lonelywolf1981/ad_portal)](network)
 
 ## 📋 Содержание
 
