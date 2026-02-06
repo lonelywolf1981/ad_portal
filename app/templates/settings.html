@@ -13,7 +13,7 @@
     <div class="card shadow-sm">
       <div class="card-body">
 
-        <form id="settings-form" method="post" action="/settings/save">
+        <form id="settings-form" method="post" action="/settings/save" hx-post="/settings/save" hx-target="#settings-save-result" hx-swap="innerHTML" hx-indicator="#settings-save-indicator">
 
           <h2 class="h6">1) Режим авторизации</h2>
           <div class="mb-3">
@@ -247,6 +247,18 @@
             </button>
 
             <button type="submit" class="btn btn-primary">Сохранить</button>
+          </div>
+
+          <div class="mt-2">
+            <div id="settings-save-indicator" class="htmx-indicator small text-secondary">Сохранение...</div>
+            <div id="settings-save-result">
+              {% if err %}
+                <div class="alert alert-danger py-2 mb-0">
+                  <div>Настройки не сохранены</div>
+                  <pre class="small mt-1 mb-0"><code>{{ err }}</code></pre>
+                </div>
+              {% endif %}
+            </div>
           </div>
 
           <div id="ad-test-result" class="mt-3">

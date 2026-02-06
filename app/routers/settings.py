@@ -3,6 +3,8 @@ from __future__ import annotations
 import ipaddress
 import json
 import inspect
+from pydantic import ValidationError
+
 from types import SimpleNamespace
 
 from fastapi import APIRouter, File, Form, Request, UploadFile
@@ -151,6 +153,46 @@ def _call_save_settings_compat(db, st, payload: dict) -> None:
             save_settings(db, st, payload)
         except TypeError:
             save_settings(db, _coerce_settings_payload(payload))
+
+
+
+
+def _humanize_pydantic_error_lines(e: ValidationError) -> list[str]:
+    """Convert Pydantic errors into short human-readable RU messages.
+
+    Важно для UI: никаких префиксов вида `ad.domain:` / `net_scan.cidrs:`.
+    Возвращаем список строк, чтобы можно было красиво показать их списком.
+    """
+
+    items: list[str] = []
+    for err in e.errors()[:3]:
+        loc = ".".join([str(x) for x in (err.get("loc") or []) if x not in ("__root__",)])
+        msg = (err.get("msg") or "").strip()
+
+        # Pydantic may prefix our ValueError with 'Value error, ...' — strip it for UI.
+        if msg.startswith("Value error, "):
+            msg = msg[len("Value error, ") :].strip()
+        elif msg.startswith("Value error: "):
+            msg = msg[len("Value error: ") :].strip()
+
+        # Normalize some common patterns
+        if loc == "net_scan.cidrs":
+            if not msg:
+                msg = "Ошибка в списке диапазонов (CIDR)."
+
+        if loc == "ad.domain":
+            if not msg:
+                msg = "Ошибка в имени домена."
+        if loc == "ad.dc_short":
+            if not msg:
+                msg = "Ошибка в имени контроллера домена (DC short)."
+
+        if msg:
+            items.append(msg)
+
+    if len(e.errors()) > 3:
+        items.append(f"+ ещё {len(e.errors()) - 3} ошибок")
+    return items
 
 
 def _alert_response(ok: bool, message: str, details: str = "", *, status_code: int = 200) -> HTMLResponse:
@@ -327,33 +369,56 @@ def settings_save(
 
     with db_session() as db:
         st = get_or_create_settings(db)
-        _call_save_settings_compat(
-            db,
-            st,
-            {
-                "auth_mode": auth_mode,
-                "ad_dc_short": ad_dc_short,
-                "ad_domain": ad_domain,
-                "ad_conn_mode": ad_conn_mode,
-                "ad_bind_username": ad_bind_username,
-                "ad_bind_password": ad_bind_password,
-                "ad_tls_validate": ad_tls_validate,
-                "ad_ca_pem": ad_ca_pem,
-                "host_query_username": host_query_username,
-                "host_query_password": host_query_password,
-                "host_query_timeout_s": host_query_timeout_s,
-                "net_scan_enabled": net_scan_enabled,
-                "net_scan_cidrs": net_scan_cidrs,
-                "net_scan_interval_min": net_scan_interval_min,
-                "net_scan_concurrency": net_scan_concurrency,
-                "net_scan_method_timeout_s": net_scan_method_timeout_s,
-                "net_scan_probe_timeout_ms": net_scan_probe_timeout_ms,
-                "allowed_app_group_dns": allowed_app_group_dns,
-                "allowed_settings_group_dns": allowed_settings_group_dns,
-            },
-        )
-    return RedirectResponse(url="/settings?saved=1", status_code=303)
+        try:
+            _call_save_settings_compat(
+                db,
+                st,
+                {
+                    "auth_mode": auth_mode,
+                    "ad_dc_short": ad_dc_short,
+                    "ad_domain": ad_domain,
+                    "ad_conn_mode": ad_conn_mode,
+                    "ad_bind_username": ad_bind_username,
+                    "ad_bind_password": ad_bind_password,
+                    "ad_tls_validate": ad_tls_validate,
+                    "ad_ca_pem": ad_ca_pem,
+                    "host_query_username": host_query_username,
+                    "host_query_password": host_query_password,
+                    "host_query_timeout_s": host_query_timeout_s,
+                    "net_scan_enabled": net_scan_enabled,
+                    "net_scan_cidrs": net_scan_cidrs,
+                    "net_scan_interval_min": net_scan_interval_min,
+                    "net_scan_concurrency": net_scan_concurrency,
+                    "net_scan_method_timeout_s": net_scan_method_timeout_s,
+                    "net_scan_probe_timeout_ms": net_scan_probe_timeout_ms,
+                    "allowed_app_group_dns": allowed_app_group_dns,
+                    "allowed_settings_group_dns": allowed_settings_group_dns,
+                },
+            )
+        except ValidationError as e:
+            lines = _humanize_pydantic_error_lines(e)
+            details = "\n".join(lines)
+            if request.headers.get("HX-Request") == "true":
+                # Для HTMX показываем ошибки списком (иначе переносы строк схлопываются в один текст).
+                return htmx_alert(
+                    {
+                        "ok": False,
+                        "message": "Настройки не сохранены",
+                        "details": "",
+                        "hints": lines,
+                    },
+                    status_code=200,
+                )
+            from urllib.parse import quote
+            return RedirectResponse(url=f"/settings?err={quote(details)}#settings-save", status_code=303)
 
+    if request.headers.get("HX-Request") == "true":
+        # For HTMX: do a full redirect (HX-Redirect) to avoid swapping the whole page into the target div.
+        resp = HTMLResponse(content="", status_code=204)
+        resp.headers["HX-Redirect"] = "/settings?saved=1"
+        return resp
+
+    return RedirectResponse(url="/settings?saved=1", status_code=303)
 
 @router.post("/settings/validate/ad", response_class=HTMLResponse)
 def settings_validate_ad(

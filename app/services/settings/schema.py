@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import ipaddress
+import re
 from typing import Literal, Any
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 CURRENT_SCHEMA_VERSION = 2
+
+MAX_NETSCAN_CIDRS = 64  # hard limit for net_scan.cidrs
 
 AuthMode = Literal["local", "ad"]
 ADConnMode = Literal["ldaps", "starttls"]
@@ -44,6 +47,38 @@ class ADSettings(BaseModel):
     def _strip(cls, v: str) -> str:
         return (v or "").strip()
 
+    @field_validator("domain")
+    @classmethod
+    def _validate_domain(cls, v: str) -> str:
+        s = (v or "").strip().lower()
+        if not s:
+            return s
+        if s[-1] in ".,;":
+            raise ValueError("Имя домена не должно оканчиваться на точку/запятую/точку с запятой.")
+        labels = s.split(".")
+        for lab in labels:
+            if not lab:
+                raise ValueError("Некорректное имя домена: пустая часть между точками.")
+            if len(lab) > 63:
+                raise ValueError(f"Некорректное имя домена: часть '{lab}' слишком длинная (макс 63).")
+            if not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", lab):
+                raise ValueError(f"Некорректное имя домена: недопустимые символы в части '{lab}'.")
+        if len(s) > 253:
+            raise ValueError("Некорректное имя домена: слишком длинное (макс 253).")
+        return s
+
+    @field_validator("dc_short")
+    @classmethod
+    def _validate_dc_short(cls, v: str) -> str:
+        s = (v or "").strip()
+        if not s:
+            return s
+        if any(ch in s for ch in ".,;"):
+            raise ValueError("Имя DC (короткое) не должно содержать точек/запятых.")
+        if not re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9_-]{0,62}[A-Za-z0-9])?", s):
+            raise ValueError("Некорректное имя DC: используйте буквы/цифры/дефис/подчёркивание без пробелов.")
+        return s
+
     @field_validator("allowed_app_group_dns", "allowed_settings_group_dns")
     @classmethod
     def _strip_list(cls, v: list[str]) -> list[str]:
@@ -74,15 +109,48 @@ class NetScanSettings(BaseModel):
     @field_validator("cidrs")
     @classmethod
     def _cidrs_strip_and_validate(cls, v: list[str]) -> list[str]:
-        out: list[str] = []
+        """
+        - trims empty lines
+        - validates CIDR parseability
+        - rejects duplicates (after canonical normalization)
+        - rejects overlaps (e.g. 192.168.72.0/26 and 192.168.72.0/25)
+        """
+        raw_items: list[str] = []
+        nets: list[ipaddress._BaseNetwork] = []  # type: ignore[attr-defined]
+
         for raw in (v or []):
             t = (raw or "").strip()
             if not t:
                 continue
-            # validate parseability
-            ipaddress.ip_network(t, strict=False)
-            out.append(t)
-        return out
+            net = ipaddress.ip_network(t, strict=False)
+            raw_items.append(t)
+            nets.append(net)
+
+        # Normalize to canonical strings (used by scanner and for duplicate detection)
+        canon = [str(n) for n in nets]
+
+        # Duplicates (exact same network/prefix)
+        seen: set[str] = set()
+        dups: list[str] = []
+        for c in canon:
+            if c in seen and c not in dups:
+                dups.append(c)
+            seen.add(c)
+        if dups:
+            raise ValueError("Повторяющийся диапазон CIDR: " + "; ".join(dups))
+
+        # Overlaps (different networks that overlap)
+        # Keep the message short (first offending pair).
+        for i in range(len(nets)):
+            for j in range(i + 1, len(nets)):
+                a = nets[i]
+                b = nets[j]
+                if a.overlaps(b):
+                    raise ValueError(f"Пересекающиеся диапазоны CIDR: {canon[i]} и {canon[j]}")
+
+        # Return canonical list for storage
+        return canon
+
 
 
 def upgrade_payload(payload: dict) -> dict:
