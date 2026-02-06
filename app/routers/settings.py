@@ -297,10 +297,18 @@ def settings_page(request: Request, saved: int = 0):
         st = get_or_create_settings(db)
 
         net_scan_last_run_ui = "—"
+        net_scan_last_token = ""
+        net_scan_is_running = False
         try:
             dt = getattr(st, "net_scan_last_run_ts", None)
             if dt:
                 net_scan_last_run_ui = format_ru_local(dt) or "—"
+                try:
+                    net_scan_last_token = dt.isoformat(timespec="seconds")
+                except Exception:
+                    net_scan_last_token = str(dt)
+            # Authoritative "running" marker is net_scan_lock_ts (set/cleared by background task).
+            net_scan_is_running = bool(getattr(st, "net_scan_lock_ts", None))
         except Exception:
             pass
 
@@ -329,6 +337,8 @@ def settings_page(request: Request, saved: int = 0):
                 "selected_app_dns": selected_app,
                 "selected_settings_dns": selected_settings,
                 "net_scan_last_run_ui": net_scan_last_run_ui,
+                "net_scan_last_token": net_scan_last_token,
+                "net_scan_is_running": net_scan_is_running,
             },
         )
 

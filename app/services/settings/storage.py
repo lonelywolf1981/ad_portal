@@ -12,24 +12,28 @@ from .schema import AppSettingsSchema, CURRENT_SCHEMA_VERSION
 
 
 def _migrate_settings_row(st: AppSettings) -> bool:
-    """Apply lightweight in-place migrations for settings row.
+    """Apply lightweight in-place migrations for the single settings row.
 
-    We keep DB schema stable; only normalize columns and bump schema_version.
+    Goal: **auto-upgrade on read** while keeping the DB schema stable (no Alembic).
+    We only bump *forward* (never downgrade) and can normalize legacy columns when needed.
     """
     changed = False
-    v = int(getattr(st, "schema_version", 0) or 0)
 
-    if v < 1:
-        st.schema_version = 1
-        changed = True
+    current = int(CURRENT_SCHEMA_VERSION or 0)
+    try:
+        v = int(getattr(st, "schema_version", 0) or 0)
+    except Exception:
+        v = 0
 
-    # v1 -> v2: only schema_version bump; structure is handled in typed schema upgrade.
-    if v < 2:
-        st.schema_version = 2
-        changed = True
+    # NOTE: never touch rows created by a newer app version.
+    if v > current:
+        return False
 
-    if st.schema_version != CURRENT_SCHEMA_VERSION:
-        st.schema_version = max(int(st.schema_version or 0), CURRENT_SCHEMA_VERSION)
+    # v0/v1 -> current: at the moment this is only a version bump.
+    # Keep the structure migration in typed schema layer (schema.upgrade_payload)
+    # and DB layer stable.
+    if v < current:
+        st.schema_version = current
         changed = True
 
     return changed

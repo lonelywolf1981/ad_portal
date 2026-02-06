@@ -1,5 +1,6 @@
 {% extends "base_app.html" %}
 {% block content %}
+  {% include "partials/net_scan_poll.html" %}
 
 <div class="d-flex align-items-center justify-content-between mb-3">
   <h1 class="h5 m-0">Настройки</h1>
@@ -223,13 +224,19 @@
                 </button>
                 <div id="net-scan-run-result" class="flex-grow-1"></div>
               </div>
-              {% if st.net_scan_last_run_ts or st.net_scan_last_summary %}
-                <div class="small text-secondary mt-2">
-		  <div><span class="fw-semibold">Последний запуск:</span> {{ net_scan_last_run_ui }}</div>
-                  <div><span class="fw-semibold">Результат:</span> {{ st.net_scan_last_summary or '—' }}</div>
+              <div id="net-scan-status" class="small text-secondary mt-2">
+                <div>
+                  <span class="fw-semibold">Статус:</span>
+                  {% if net_scan_is_running %}
+                    <span class="badge text-bg-info">Выполняется…</span>
+                  {% else %}
+                    <span class="badge text-bg-secondary">Ожидание</span>
+                  {% endif %}
                 </div>
-              {% endif %}
-            </div>
+                <div class="mt-1"><span class="fw-semibold">Последний запуск:</span> {{ net_scan_last_run_ui if net_scan_last_run_ui else "—" }}</div>
+                <div><span class="fw-semibold">Результат:</span> {{ st.net_scan_last_summary or "—" }}</div>
+              </div>
+</div>
           </div>
 
         {% include "partials/settings_validate_tools.html" %}

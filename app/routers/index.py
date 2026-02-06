@@ -55,7 +55,12 @@ def index(request: Request):
 
 @router.get("/net-scan/poll", response_class=HTMLResponse)
 def net_scan_poll(request: Request, last: str = ""):
-    """HTMX poll endpoint: triggers full page reload when a new scan finishes."""
+    """HTMX poll endpoint.
+
+    Behaviour:
+    - While scan is running: keep polling (no reload).
+    - When a new scan *finishes* (last_run token changes and lock is cleared): ask HTMX to refresh the page.
+    """
     auth = require_session_or_hx_redirect(request)
     if not isinstance(auth, dict):
         return auth
@@ -72,14 +77,24 @@ def net_scan_poll(request: Request, last: str = ""):
                     cur_token = dt.isoformat(timespec="seconds")
                 except Exception:
                     cur_token = str(dt)
+            # Authoritative "running" marker is net_scan_lock_ts (set/cleared by background task).
             is_running = bool(getattr(st, "net_scan_lock_ts", None))
     except Exception:
         pass
 
-    should_reload = bool(cur_token and last and (cur_token != last) and (not is_running))
+    # Refresh only when scan finished and we see a NEW last_run token.
+    should_refresh = (not is_running) and bool(cur_token) and (cur_token != last)
+
+    headers = {}
+    if should_refresh:
+        # HTMX native full refresh (more reliable than injecting <script>).
+        headers["HX-Refresh"] = "true"
+
+    # Keep polling; always emit next token in the URL.
     html = (
-        f"<div id='net-scan-poll' hx-get='/net-scan/poll?last={cur_token}' hx-trigger='every 10s' hx-swap='outerHTML'>"
-        f"{'<script>window.location.reload();</script>' if should_reload else ''}"
-        f"</div>"
+        f"<div id='net-scan-poll' class='d-none' "
+        f"hx-get='/net-scan/poll?last={cur_token}' "
+        f"hx-trigger='load, every 5s' "
+        f"hx-swap='outerHTML'></div>"
     )
-    return HTMLResponse(content=html, status_code=200)
+    return HTMLResponse(content=html, status_code=200, headers=headers)
