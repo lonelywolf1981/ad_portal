@@ -42,6 +42,8 @@ def ad_test_and_load_groups(db: Session, st: AppSettings, override: dict | None 
     domain = pick("ad_domain", st.ad_domain)
     bind_user = pick("ad_bind_username", st.ad_bind_username)
     bind_pw = pick("ad_bind_password", "") or decrypt_str(st.ad_bind_password_enc)
+    tls_validate = bool(pick("ad_tls_validate", st.ad_tls_validate))
+    ca_pem = (pick("ad_ca_pem", st.ad_ca_pem) or "")
 
     if mode == "ldaps":
         port, use_ssl, starttls = 636, True, False
@@ -59,8 +61,8 @@ def ad_test_and_load_groups(db: Session, st: AppSettings, override: dict | None 
         starttls=starttls,
         bind_username=bind_user,
         bind_password=bind_pw,
-        tls_validate=False,
-        ca_pem="",
+        tls_validate=tls_validate,
+        ca_pem=ca_pem,
     )
 
     client = ADClient(cfg)
@@ -88,6 +90,8 @@ def ad_test_and_load_groups(db: Session, st: AppSettings, override: dict | None 
         st.ad_starttls = starttls
         st.ad_bind_username = bind_user
         st.ad_bind_password_enc = encrypt_str(bind_pw)
+        st.ad_tls_validate = bool(tls_validate)
+        st.ad_ca_pem = ca_pem or ""
 
     db.commit()
     return True, "OK", groups

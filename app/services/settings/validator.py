@@ -165,6 +165,20 @@ def validate_ad(settings: AppSettingsSchema, *, timeout_s: float = 3.0) -> Valid
     if not settings.ad.bind_password:
         return ValidateResult(False, "AD: укажите пароль Bind user (введите и сохраните/проверьте)")
 
+    ca_pem = (settings.ad.ca_pem or "").strip()
+    if settings.ad.tls_validate and ca_pem:
+        # Fail fast with a readable hint instead of a low-level TLS/ldap exception.
+        if "-----BEGIN CERTIFICATE-----" not in ca_pem or "-----END CERTIFICATE-----" not in ca_pem:
+            return ValidateResult(
+                False,
+                "AD: CA PEM некорректен",
+                details="Ожидается блок сертификата в формате PEM (BEGIN/END CERTIFICATE)",
+                hints=[
+                    "Вставьте корневой/промежуточный CA, который подписал сертификат DC",
+                    "Оставьте поле пустым, если используете системный trust store контейнера/ОС",
+                ],
+            )
+
     try:
         cfg = ADConfig(
             dc_short=dc,
@@ -175,6 +189,7 @@ def validate_ad(settings: AppSettingsSchema, *, timeout_s: float = 3.0) -> Valid
             bind_username=settings.ad.bind_username,
             bind_password=settings.ad.bind_password,
             tls_validate=bool(settings.ad.tls_validate),
+            ca_pem=ca_pem,
         )
         client = ADClient(cfg)
         ok = client.test_connection(timeout_s=timeout_s)

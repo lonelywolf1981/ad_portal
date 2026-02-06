@@ -89,6 +89,41 @@
             </div>
           </div>
 
+          <div class="row g-3 mt-1">
+            <div class="col-md-4">
+              <label class="form-label fw-semibold d-block">TLS проверка</label>
+              <div class="form-check">
+                <input
+                  class="form-check-input"
+                  type="checkbox"
+                  id="ad_tls_validate"
+                  name="ad_tls_validate"
+                  {% if st.ad_tls_validate %}checked{% endif %}
+                >
+                <label class="form-check-label" for="ad_tls_validate">
+                  Проверять сертификат DC
+                </label>
+              </div>
+              <div class="form-text">
+                Если включено — требуется доверенный сертификат (системный trust store или CA ниже).
+              </div>
+            </div>
+
+            <div class="col-md-8">
+              <label class="form-label fw-semibold">CA сертификат (PEM)</label>
+              <textarea
+                class="form-control font-monospace"
+                id="ad_ca_pem"
+                name="ad_ca_pem"
+                rows="6"
+                placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"
+              >{{ st.ad_ca_pem or '' }}</textarea>
+              <div class="form-text">
+                Необязательно. Используется только если включена проверка сертификата.
+              </div>
+            </div>
+          </div>
+
           
           <hr class="my-4">
 
@@ -252,6 +287,17 @@
 
 <script>
 (function(){
+  function toggleAdCaPem(){
+    const cb = document.getElementById("ad_tls_validate");
+    const ta = document.getElementById("ad_ca_pem");
+    if(!cb || !ta) return;
+    const enabled = !!cb.checked;
+    // Use readonly instead of disabled so the value is still submitted and
+    // we don't accidentally wipe an already stored CA when saving.
+    ta.readOnly = !enabled;
+    // Minor visual cue when disabled.
+    ta.classList.toggle("opacity-50", !enabled);
+  }
   function updateBadges(selectId, badgesId){
     const sel = document.getElementById(selectId);
     const box = document.getElementById(badgesId);
@@ -268,9 +314,13 @@
     if(e.target && e.target.id === "allowed_settings_groups"){
       updateBadges("allowed_settings_groups", "badges_settings");
     }
+    if(e.target && e.target.id === "ad_tls_validate"){
+      toggleAdCaPem();
+    }
   });
   updateBadges("allowed_app_groups", "badges_app");
   updateBadges("allowed_settings_groups", "badges_settings");
+  toggleAdCaPem();
 })();
 </script>
 

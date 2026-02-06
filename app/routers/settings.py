@@ -58,6 +58,15 @@ def _truthy_flag(v) -> bool:
     return s in {"1", "true", "on", "yes", "y"}
 
 
+def _normalize_pem(v: str | None) -> str:
+    """Normalize PEM text for stable storage and predictable TLS behavior."""
+    s = (v or "").strip()
+    if not s:
+        return ""
+    # Normalize line endings to avoid hash mismatches and confusing diffs.
+    return s.replace("\r\n", "\n").replace("\r", "\n")
+
+
 def _coerce_settings_payload(payload: dict) -> object:
     """Coerce legacy flat payload into the new typed settings schema.
 
@@ -87,6 +96,8 @@ def _coerce_settings_payload(payload: dict) -> object:
             "conn_mode": (payload.get("ad_conn_mode") or "ldaps").strip() or "ldaps",
             "bind_username": payload.get("ad_bind_username", ""),
             "bind_password": payload.get("ad_bind_password", ""),
+            "tls_validate": _truthy_flag(payload.get("ad_tls_validate")),
+            "ca_pem": _normalize_pem(payload.get("ad_ca_pem")),
             "allowed_app_group_dns": payload.get("allowed_app_group_dns") or [],
             "allowed_settings_group_dns": payload.get("allowed_settings_group_dns") or [],
         },
@@ -178,6 +189,10 @@ def _effective_settings_from_form(db, form: dict) -> AppSettingsSchema:
         patch["ad"]["domain"] = form.get("ad_domain") or patch["ad"]["domain"]
     if form.get("ad_conn_mode"):
         patch["ad"]["conn_mode"] = (form.get("ad_conn_mode") or "").strip() or patch["ad"]["conn_mode"]
+    if form.get("ad_tls_validate") is not None:
+        patch["ad"]["tls_validate"] = _truthy_flag(form.get("ad_tls_validate"))
+    if form.get("ad_ca_pem") is not None:
+        patch["ad"]["ca_pem"] = _normalize_pem(form.get("ad_ca_pem"))
     if form.get("ad_bind_username") is not None:
         patch["ad"]["bind_username"] = form.get("ad_bind_username") or patch["ad"]["bind_username"]
     if (form.get("ad_bind_password") or "").strip():
@@ -287,6 +302,8 @@ def settings_save(
     ad_conn_mode: str = Form("ldaps"),
     ad_bind_username: str = Form(""),
     ad_bind_password: str = Form(""),
+    ad_tls_validate: str = Form(""),
+    ad_ca_pem: str = Form(""),
     host_query_username: str = Form(""),
     host_query_password: str = Form(""),
     host_query_timeout_s: int = Form(60),
@@ -320,6 +337,8 @@ def settings_save(
                 "ad_conn_mode": ad_conn_mode,
                 "ad_bind_username": ad_bind_username,
                 "ad_bind_password": ad_bind_password,
+                "ad_tls_validate": ad_tls_validate,
+                "ad_ca_pem": ad_ca_pem,
                 "host_query_username": host_query_username,
                 "host_query_password": host_query_password,
                 "host_query_timeout_s": host_query_timeout_s,
@@ -344,6 +363,8 @@ def settings_validate_ad(
     ad_conn_mode: str = Form("ldaps"),
     ad_bind_username: str = Form(""),
     ad_bind_password: str = Form(""),
+    ad_tls_validate: str = Form(""),
+    ad_ca_pem: str = Form(""),
 ):
     """Validate AD connection/bind (Stage 1 validator; without saving)."""
 
@@ -362,6 +383,8 @@ def settings_validate_ad(
                 "ad_conn_mode": ad_conn_mode,
                 "ad_bind_username": ad_bind_username,
                 "ad_bind_password": ad_bind_password,
+                "ad_tls_validate": ad_tls_validate,
+                "ad_ca_pem": ad_ca_pem,
                 # keep existing secrets if blank
             },
         )
@@ -492,6 +515,8 @@ def settings_ad_test(
     ad_conn_mode: str = Form("ldaps"),
     ad_bind_username: str = Form(""),
     ad_bind_password: str = Form(""),
+    ad_tls_validate: str = Form(""),
+    ad_ca_pem: str = Form(""),
     host_query_username: str = Form(""),
     host_query_password: str = Form(""),
     host_query_timeout_s: int = Form(60),
@@ -517,6 +542,8 @@ def settings_ad_test(
                 "ad_conn_mode": ad_conn_mode.strip(),
                 "ad_bind_username": ad_bind_username.strip(),
                 "ad_bind_password": ad_bind_password,
+                "ad_tls_validate": ad_tls_validate,
+                "ad_ca_pem": ad_ca_pem,
                 "host_query_username": host_query_username,
                 "host_query_password": host_query_password,
                 "host_query_timeout_s": host_query_timeout_s,

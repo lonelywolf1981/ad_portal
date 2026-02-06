@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Optional
 import ssl
+import hashlib
+import os
 
 from ldap3 import (
     Server,
@@ -21,12 +23,71 @@ from .utils import escape_ldap_filter_value, filetime_to_dt_str
 
 
 class ADClient:
+    @staticmethod
+    def _normalize_pem(pem: str) -> str:
+        """Normalize PEM text (strip outer whitespace and normalize line endings)."""
+        data = (pem or "").strip()
+        # Normalize Windows newlines to \n to avoid hash mismatches.
+        data = data.replace("\r\n", "\n").replace("\r", "\n")
+        return data
+
+    @staticmethod
+    def _ensure_ca_file(pem: str) -> str:
+        """Materialize CA PEM into a stable file path.
+
+        ldap3.Tls historically supports ca_certs_file (works across versions).
+        We store PEM under /tmp with a content hash, so multiple workers can reuse it.
+        """
+
+        data = ADClient._normalize_pem(pem)
+        if not data:
+            return ""
+
+        # Minimal sanity check: avoid writing arbitrary text to /tmp and later confusing TLS errors.
+        if "-----BEGIN CERTIFICATE-----" not in data or "-----END CERTIFICATE-----" not in data:
+            raise ValueError("CA PEM не похож на сертификат (ожидается блок BEGIN/END CERTIFICATE)")
+
+        h = hashlib.sha256(data.encode("utf-8")).hexdigest()[:16]
+        path = f"/tmp/ad_portal_ca_{h}.pem"
+
+        try:
+            # Write only if missing or different.
+            if os.path.exists(path):
+                try:
+                    with open(path, "r", encoding="utf-8") as f:
+                        if f.read().strip() == data:
+                            return path
+                except Exception:
+                    pass
+
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(data)
+                if not data.endswith("\n"):
+                    f.write("\n")
+            try:
+                os.chmod(path, 0o600)
+            except Exception:
+                pass
+        except Exception:
+            # If filesystem is read-only for some reason, fall back to system trust store.
+            return ""
+
+        return path
+
     def __init__(self, cfg: ADConfig) -> None:
         self.cfg = cfg
-        if cfg.tls_validate:
-            tls = Tls(validate=ssl.CERT_REQUIRED)
-        else:
-            tls = Tls(validate=ssl.CERT_NONE)
+
+        tls_kwargs: dict[str, Any] = {
+            "validate": ssl.CERT_REQUIRED if cfg.tls_validate else ssl.CERT_NONE,
+        }
+        # Apply custom CA only when verification is enabled.
+        ca_pem = self._normalize_pem(cfg.ca_pem or "")
+        if cfg.tls_validate and ca_pem:
+            ca_file = self._ensure_ca_file(ca_pem)
+            if ca_file:
+                tls_kwargs["ca_certs_file"] = ca_file
+
+        tls = Tls(**tls_kwargs)
 
         self.server = Server(
             host=cfg.host,
