@@ -122,12 +122,19 @@ class NetScanSettings(BaseModel):
             t = (raw or "").strip()
             if not t:
                 continue
-            net = ipaddress.ip_network(t, strict=False)
+            try:
+                net = ipaddress.ip_network(t, strict=False)
+            except ValueError:
+                raise ValueError(f"Некорректный CIDR: {t}")
             raw_items.append(t)
             nets.append(net)
 
         # Normalize to canonical strings (used by scanner and for duplicate detection)
         canon = [str(n) for n in nets]
+
+        # Hard limit to keep scanning predictable and UI responsive.
+        if len(canon) > MAX_NETSCAN_CIDRS:
+            raise ValueError(f"Слишком много диапазонов CIDR (макс {MAX_NETSCAN_CIDRS}).")
 
         # Duplicates (exact same network/prefix)
         seen: set[str] = set()
