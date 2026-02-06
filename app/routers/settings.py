@@ -669,7 +669,8 @@ def settings_net_scan_run(request: Request):
                 content="<div class='alert alert-warning py-2 mb-0'>Фоновое сканирование выключено. Включите его в настройках и сохраните.</div>",
                 status_code=200,
             )
-        if getattr(st, "net_scan_is_running", False):
+        # Authoritative "running" marker is net_scan_lock_ts (set/cleared by background task).
+        if getattr(st, "net_scan_lock_ts", None):
             return HTMLResponse(
                 content="<div class='alert alert-info py-2 mb-0'>Сканирование уже выполняется.</div>",
                 status_code=200,

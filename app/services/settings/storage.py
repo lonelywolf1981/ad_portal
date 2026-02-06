@@ -81,7 +81,7 @@ def save_settings(db: Session, data: AppSettingsSchema, *, keep_secrets_if_blank
 
     st = get_or_create_settings(db)
 
-    st.schema_version = int(getattr(data, "schema_version", CURRENT_SCHEMA_VERSION) or CURRENT_SCHEMA_VERSION)
+    st.schema_version = CURRENT_SCHEMA_VERSION
 
     # auth (single source: data.auth.mode; fallback to legacy attr)
     mode = None

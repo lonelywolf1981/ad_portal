@@ -34,7 +34,8 @@ def index(request: Request):
                 except Exception:
                     net_scan_last_token = str(dt)
             net_scan_last_summary = (getattr(st, "net_scan_last_summary", "") or "").strip()
-            net_scan_is_running = bool(getattr(st, "net_scan_is_running", False))
+            # Authoritative "running" marker is net_scan_lock_ts (set/cleared by background task).
+            net_scan_is_running = bool(getattr(st, "net_scan_lock_ts", None))
     except Exception:
         # do not fail the main page if settings schema is missing
         pass
@@ -71,7 +72,7 @@ def net_scan_poll(request: Request, last: str = ""):
                     cur_token = dt.isoformat(timespec="seconds")
                 except Exception:
                     cur_token = str(dt)
-            is_running = bool(getattr(st, "net_scan_is_running", False))
+            is_running = bool(getattr(st, "net_scan_lock_ts", None))
     except Exception:
         pass
 
