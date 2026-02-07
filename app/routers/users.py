@@ -4,7 +4,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 
 from ..deps import require_session_or_hx_redirect
-from ..ldap_client import ADClient
+from ..ad import ADClient
 from ..net_scan import parse_cidrs, reverse_dns
 from ..presence import fmt_dt_ru, get_presence_map, normalize_login
 from ..repo import db_session, get_or_create_settings

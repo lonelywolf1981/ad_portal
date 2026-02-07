@@ -15,6 +15,17 @@ def _ad_cfg_from_settings(st: AppSettings) -> ADConfig | None:
     if not st.ad_dc_short or not st.ad_domain or not st.ad_bind_username:
         return None
     pwd = decrypt_str(st.ad_bind_password_enc)
+    
+    # Определяем DNS сервер: сначала используем явно заданный, если нет - берем из первых CIDR сетей
+    dns_server = (st.net_scan_dns_server or "").strip()
+    if not dns_server and st.net_scan_cidrs:
+        # Извлекаем первый IP из CIDR сетей, как это делается в других частях приложения
+        from ..services.settings.validator import _first_dns_server_from_cidrs
+        from ..services.settings.schema import AppSettingsSchema
+        # Преобразуем строку CIDR в список
+        cidrs = [line.strip() for line in (st.net_scan_cidrs or "").split('\n') if line.strip()]
+        dns_server = _first_dns_server_from_cidrs(cidrs)
+    
     return ADConfig(
         dc_short=st.ad_dc_short,
         domain=st.ad_domain,
@@ -25,6 +36,7 @@ def _ad_cfg_from_settings(st: AppSettings) -> ADConfig | None:
         bind_password=pwd,
         tls_validate=st.ad_tls_validate,
         ca_pem=st.ad_ca_pem or "",
+        dns_server=dns_server,
     )
 
 
@@ -44,6 +56,7 @@ def ad_test_and_load_groups(db: Session, st: AppSettings, override: dict | None 
     bind_pw = pick("ad_bind_password", "") or decrypt_str(st.ad_bind_password_enc)
     tls_validate = bool(pick("ad_tls_validate", st.ad_tls_validate))
     ca_pem = (pick("ad_ca_pem", st.ad_ca_pem) or "")
+    dns_server = pick("net_scan_dns_server", st.net_scan_dns_server or "")
 
     if mode == "ldaps":
         port, use_ssl, starttls = 636, True, False
@@ -63,12 +76,26 @@ def ad_test_and_load_groups(db: Session, st: AppSettings, override: dict | None 
         bind_password=bind_pw,
         tls_validate=tls_validate,
         ca_pem=ca_pem,
+        dns_server=dns_server,
     )
 
     client = ADClient(cfg)
     ok, res = client.service_bind()
     if not ok:
-        msg = f"Ошибка bind: {res}"
+        # Попробуем получить более подробное сообщение об ошибке
+        error_msg = str(res.get('description', res.get('message', 'Неизвестная ошибка')))
+        
+        # Попробуем расшифровать наиболее распространенные ошибки
+        if 'invalidCredentials' in error_msg:
+            error_msg = 'Неверные учетные данные (пользователь или пароль)'
+        elif 'strongerAuthRequired' in error_msg:
+            error_msg = 'Требуется более безопасный метод аутентификации'
+        elif 'connect_error' in error_msg:
+            error_msg = 'Ошибка подключения к серверу'
+        elif 'SSL handshake failed' in error_msg:
+            error_msg = 'Ошибка SSL-соединения. Проверьте настройки TLS/SSL и сертификаты.'
+        
+        msg = f"Ошибка bind: {error_msg}"
         st.last_ad_test_ok = False
         st.last_ad_test_message = msg[:512]
         st.last_ad_test_ts = datetime.utcnow()
@@ -92,6 +119,10 @@ def ad_test_and_load_groups(db: Session, st: AppSettings, override: dict | None 
         st.ad_bind_password_enc = encrypt_str(bind_pw)
         st.ad_tls_validate = bool(tls_validate)
         st.ad_ca_pem = ca_pem or ""
+        
+        # Сохраняем также настройки сетевого сканирования, если они предоставлены
+        if "net_scan_dns_server" in override:
+            st.net_scan_dns_server = override["net_scan_dns_server"]
 
     db.commit()
     return True, "OK", groups

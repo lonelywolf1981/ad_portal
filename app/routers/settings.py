@@ -111,6 +111,7 @@ def _coerce_settings_payload(payload: dict) -> object:
         "net_scan": {
             "enabled": _truthy_flag(payload.get("net_scan_enabled")),
             "cidrs": _parse_cidrs(payload.get("net_scan_cidrs", "")),
+            "dns_server": (payload.get("net_scan_dns_server") or "").strip(),
             "interval_min": int(payload.get("net_scan_interval_min") or 120),
             "concurrency": int(payload.get("net_scan_concurrency") or 64),
             "method_timeout_s": int(payload.get("net_scan_method_timeout_s") or 20),
@@ -256,6 +257,7 @@ def _effective_settings_from_form(db, form: dict) -> AppSettingsSchema:
     # Net scan
     patch["net_scan"]["enabled"] = bool(form.get("net_scan_enabled"))
     patch["net_scan"]["cidrs"] = _parse_cidrs(form.get("net_scan_cidrs") or "")
+    patch["net_scan"]["dns_server"] = (form.get("net_scan_dns_server") or "").strip()
 
     return AppSettingsSchema.model_validate(patch)
 
@@ -278,7 +280,29 @@ def _render_validate_result(res) -> HTMLResponse:
             if details:
                 details += "\n\n"
             details += "Рекомендации:\n" + "\n".join(f"• {h}" for h in hints)
-    return _alert_response(bool(res.ok), res.message, details)
+    
+    # Если результат неудачный, добавляем возможность просмотра подробностей
+    if not res.ok and details:
+        # Формируем HTML с кнопкой "Подробнее"
+        details_id = f"validate-details-{hash(details) % 10000}"  # уникальный ID для каждого сообщения
+        content = f"""
+        <div class="alert alert-danger py-2 mb-0">
+          <div class="d-flex justify-content-between align-items-start">
+            <div>{res.message}</div>
+            <button class="btn btn-link btn-sm p-0 ms-2" type="button" data-bs-toggle="collapse" data-bs-target="#{details_id}" aria-expanded="false" aria-controls="{details_id}">
+              Подробнее
+            </button>
+          </div>
+          <div class="collapse mt-2" id="{details_id}">
+            <div class="card card-body p-2 small bg-light">
+              <pre class="mb-0">{details}</pre>
+            </div>
+          </div>
+        </div>
+        """
+        return HTMLResponse(content=content, status_code=200)
+    else:
+        return _alert_response(bool(res.ok), res.message, details)
 
 
 @router.get("/settings", response_class=HTMLResponse)
@@ -361,6 +385,7 @@ def settings_save(
     host_query_timeout_s: int = Form(60),
     net_scan_enabled: str = Form(""),
     net_scan_cidrs: str = Form(""),
+    net_scan_dns_server: str = Form(""),
     net_scan_interval_min: int = Form(120),
     net_scan_concurrency: int = Form(64),
     net_scan_method_timeout_s: int = Form(20),
@@ -397,6 +422,7 @@ def settings_save(
                     "host_query_timeout_s": host_query_timeout_s,
                     "net_scan_enabled": net_scan_enabled,
                     "net_scan_cidrs": net_scan_cidrs,
+                    "net_scan_dns_server": net_scan_dns_server,
                     "net_scan_interval_min": net_scan_interval_min,
                     "net_scan_concurrency": net_scan_concurrency,
                     "net_scan_method_timeout_s": net_scan_method_timeout_s,
@@ -502,6 +528,7 @@ def settings_validate_net(
     request: Request,
     net_scan_enabled: str = Form(""),
     net_scan_cidrs: str = Form(""),
+    net_scan_dns_server: str = Form(""),
 ):
     auth = require_session_or_hx_redirect(request)
     if not isinstance(auth, dict):
@@ -515,6 +542,7 @@ def settings_validate_net(
             {
                 "net_scan_enabled": net_scan_enabled,
                 "net_scan_cidrs": net_scan_cidrs,
+                "net_scan_dns_server": net_scan_dns_server,
             },
         )
 
@@ -595,6 +623,7 @@ def settings_ad_test(
     host_query_username: str = Form(""),
     host_query_password: str = Form(""),
     host_query_timeout_s: int = Form(60),
+    net_scan_dns_server: str = Form(""),
 ):
     auth = require_session_or_hx_redirect(request)
     if not isinstance(auth, dict):
@@ -622,6 +651,7 @@ def settings_ad_test(
                 "host_query_username": host_query_username,
                 "host_query_password": host_query_password,
                 "host_query_timeout_s": host_query_timeout_s,
+                "net_scan_dns_server": net_scan_dns_server,
             },
         )
 
@@ -650,9 +680,32 @@ def settings_ad_test(
             }
         )
 
+        # Добавляем кнопку "Подробнее" для ошибок
+        details_btn = ""
+        details_div = ""
+        if not ok:
+            details_btn = """
+            <button class="btn btn-link btn-sm p-0 ms-2" type="button" data-bs-toggle="collapse" data-bs-target="#ad-error-details" aria-expanded="false" aria-controls="ad-error-details">
+              Подробнее
+            </button>
+            """
+            details_div = f"""
+            <div class="collapse mt-2" id="ad-error-details">
+              <div class="card card-body p-2 small bg-light">
+                {msg}
+              </div>
+            </div>
+            """
+
         return HTMLResponse(
             content=f"""
-            <div class="alert {alert_cls} py-2 mb-3">{msg}</div>
+            <div class="alert {alert_cls} py-2 mb-3">
+              <div class="d-flex justify-content-between align-items-start">
+                <div>{msg}</div>
+                {details_btn}
+              </div>
+              {details_div}
+            </div>
             <div id="group-selectors" hx-swap-oob="true">
               {groups_html}
             </div>

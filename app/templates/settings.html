@@ -38,8 +38,8 @@
           <div class="row g-3">
             <div class="col-md-3">
               <label class="form-label fw-semibold">DC</label>
-              <input class="form-control" name="ad_dc_short" value="{{ st.ad_dc_short }}" placeholder="DC1" required>
-              <div class="form-text">Только имя, без домена</div>
+              <input class="form-control" name="ad_dc_short" value="{{ st.ad_dc_short }}" placeholder="DC1 или 192.168.1.10" required>
+              <div class="form-text">Имя или IP-адрес контроллера домена</div>
             </div>
 
             <div class="col-md-5">
@@ -193,6 +193,11 @@
                 <summary class="small">Дополнительно (необязательно)</summary>
                 <div class="row g-3 mt-2">
                   <div class="col-md-4">
+                    <label class="form-label fw-semibold">DNS сервер</label>
+                    <input class="form-control" name="net_scan_dns_server" value="{{ st.net_scan_dns_server or '' }}" placeholder="192.168.66.1">
+                    <div class="form-text">Если не указан, будет использован первый адрес из CIDR сетей.</div>
+                  </div>
+                  <div class="col-md-4">
                     <label class="form-label fw-semibold">Параллелизм</label>
                     <input class="form-control" name="net_scan_concurrency" type="number" min="4" max="256" value="{{ st.net_scan_concurrency or 64 }}">
                     <div class="form-text">Сколько хостов опрашивать одновременно.</div>
@@ -242,16 +247,22 @@
         {% include "partials/settings_validate_tools.html" %}
 
           <div class="mt-3 d-flex flex-column flex-sm-row gap-2">
-            <button
-              type="button"
-              class="btn btn-outline-primary flex-grow-1"
-              hx-post="/settings/ad/test"
-              hx-include="#settings-form"
-              hx-target="#ad-test-result"
-              hx-swap="innerHTML"
-            >
-              Проверить и загрузить группы
-            </button>
+            <div class="position-relative flex-grow-1">
+              <button
+                type="button"
+                class="btn btn-outline-primary w-100"
+                hx-post="/settings/ad/test"
+                hx-include="#settings-form"
+                hx-target="#ad-test-result"
+                hx-swap="innerHTML"
+              >
+                Проверить и загрузить группы
+              </button>
+              <div class="htmx-indicator position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center bg-white bg-opacity-75 rounded opacity-0 invisible">
+                <div class="spinner-border spinner-border-sm text-primary me-2" role="status"></div>
+                <span class="small">Проверка...</span>
+              </div>
+            </div>
 
             <button type="submit" class="btn btn-primary">Сохранить</button>
           </div>
@@ -271,7 +282,21 @@
           <div id="ad-test-result" class="mt-3">
             {% if st.last_ad_test_ts %}
               <div class="alert {% if st.last_ad_test_ok %}alert-success{% else %}alert-danger{% endif %} py-2 mb-0">
-                {{ st.last_ad_test_message }}
+                <div class="d-flex justify-content-between align-items-start">
+                  <div>{{ st.last_ad_test_message }}</div>
+                  {% if not st.last_ad_test_ok %}
+                    <button class="btn btn-link btn-sm p-0 ms-2" type="button" data-bs-toggle="collapse" data-bs-target="#ad-error-details" aria-expanded="false" aria-controls="ad-error-details">
+                      Подробнее
+                    </button>
+                  {% endif %}
+                </div>
+                {% if st.last_ad_test_message and not st.last_ad_test_ok %}
+                  <div class="collapse mt-2" id="ad-error-details">
+                    <div class="card card-body p-2 small bg-light">
+                      {{ st.last_ad_test_message }}
+                    </div>
+                  </div>
+                {% endif %}
               </div>
             {% endif %}
           </div>

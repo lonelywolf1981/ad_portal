@@ -64,6 +64,7 @@ class AppSettings(Base):
     # Network scan settings (periodic user presence detection)
     net_scan_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     net_scan_cidrs: Mapped[str] = mapped_column(Text, default="", nullable=False)  # newline-separated CIDR list
+    net_scan_dns_server: Mapped[str] = mapped_column(String(255), default="", nullable=False)
     net_scan_interval_min: Mapped[int] = mapped_column(Integer, default=120, nullable=False)
     net_scan_concurrency: Mapped[int] = mapped_column(Integer, default=64, nullable=False)
     # Per-method timeout used by background scan (WinRM/WMI/SMB). Separate from host_query_timeout_s.

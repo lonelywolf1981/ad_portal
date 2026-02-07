@@ -139,8 +139,22 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 /* htmx loading indicators */
-.htmx-indicator { display: none; }
-.htmx-request .htmx-indicator { display: inline-block; }
+.htmx-indicator { 
+  display: none; 
+  transition: opacity 0.2s ease-in-out, visibility 0.2s ease-in-out;
+}
+
+button.htmx-request .htmx-indicator { 
+  display: flex !important; 
+  opacity: 1 !important;
+  visibility: visible !important;
+  z-index: 1000;
+}
+
+.position-relative .htmx-indicator {
+  opacity: 0;
+  visibility: hidden;
+}
 
 /* Badges */
 .badge-tag { margin-right: 0.25rem; margin-bottom: 0.25rem; }

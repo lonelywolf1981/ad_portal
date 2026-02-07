@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
@@ -8,6 +10,9 @@ from .repo import db_session, ensure_bootstrap_admin, get_or_create_settings
 from .schema import ensure_schema
 from .security import hash_password
 from .webui import templates
+
+# Настройка логирования - только ошибки
+logging.getLogger("uvicorn.access").setLevel(logging.ERROR)
 
 
 # Keep schema bootstrapping at import time (previous behavior).

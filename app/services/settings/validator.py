@@ -82,7 +82,8 @@ class ResolvedHost:
 def resolve_test_host(settings: AppSettingsSchema, host: str) -> ResolvedHost:
     """Resolve test host like the legacy behavior:
 
-    - If CIDR(s) are configured: try resolving via per-scan DNS (first CIDR network+1).
+    - If explicit DNS server is configured: try resolving via that server.
+    - Else if CIDR(s) are configured: try resolving via per-scan DNS (first CIDR network+1).
     - If host is short (no dot) and AD domain is configured: also try FQDN.
     - Fall back to system resolver.
     - UI should display short hostname (without domain).
@@ -105,9 +106,14 @@ def resolve_test_host(settings: AppSettingsSchema, host: str) -> ResolvedHost:
         if domain:
             candidates.append(f"{raw}.{domain}")
 
-    dns_server = _first_dns_server_from_cidrs(list(settings.net_scan.cidrs or []))
+    # Use explicit DNS server if configured
+    dns_server = (settings.net_scan.dns_server or "").strip()
+    
+    # Fallback to first CIDR network+1 if no explicit DNS server
+    if not dns_server:
+        dns_server = _first_dns_server_from_cidrs(list(settings.net_scan.cidrs or []))
 
-    # 1) Prefer explicit DNS (legacy behavior)
+    # 1) Prefer explicit DNS (or derived from CIDR)
     if dns_server:
         for name in candidates:
             ip = _resolve_a_via_server(name, dns_server, timeout_s=1.2)
@@ -179,6 +185,9 @@ def validate_ad(settings: AppSettingsSchema, *, timeout_s: float = 3.0) -> Valid
                 ],
             )
 
+    # Получаем DNS сервер из настроек
+    dns_server = settings.net_scan.dns_server or ""
+
     try:
         cfg = ADConfig(
             dc_short=dc,
@@ -190,12 +199,13 @@ def validate_ad(settings: AppSettingsSchema, *, timeout_s: float = 3.0) -> Valid
             bind_password=settings.ad.bind_password,
             tls_validate=bool(settings.ad.tls_validate),
             ca_pem=ca_pem,
+            dns_server=dns_server,
         )
         client = ADClient(cfg)
-        ok = client.test_connection(timeout_s=timeout_s)
+        ok, details = client.test_connection_detailed(timeout_s=timeout_s)
         if ok:
-            return ValidateResult(True, "AD: подключение успешно")
-        return ValidateResult(False, "AD: не удалось подключиться или выполнить bind")
+            return ValidateResult(True, "AD: подключение успешно", details="Подключение к AD успешно установлено")
+        return ValidateResult(False, "AD: не удалось подключиться или выполнить bind", details=details)
     except Exception as e:
         return ValidateResult(
             False,
@@ -303,7 +313,7 @@ def validate_host_query(settings: AppSettingsSchema) -> ValidateResult:
 
 
 def validate_net_scan(settings: AppSettingsSchema) -> ValidateResult:
-    """Validate network scan settings (CIDRs + limits)."""
+    """Validate network scan settings (CIDRs + limits + DNS)."""
 
     if not settings.net_scan.enabled:
         return ValidateResult(True, "Net scan: выключено (это нормально)")
@@ -336,5 +346,18 @@ def validate_net_scan(settings: AppSettingsSchema) -> ValidateResult:
             details="; ".join(too_big),
             hints=["Используйте более узкие сети (например /24 или /23)"],
         )
+
+    # Validate DNS server if provided
+    dns_server = (settings.net_scan.dns_server or "").strip()
+    if dns_server:
+        try:
+            ipaddress.ip_address(dns_server)
+        except Exception:
+            return ValidateResult(
+                False,
+                "Net scan: некорректный DNS сервер",
+                details=f"'{dns_server}' не является допустимым IP-адресом",
+                hints=["Укажите правильный IP-адрес DNS-сервера"],
+            )
 
     return ValidateResult(True, "Net scan: проверка пройдена")

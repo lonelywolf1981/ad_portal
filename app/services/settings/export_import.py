@@ -80,6 +80,7 @@ def _coerce_legacy_payload(raw: Any) -> Any:
             "net_scan": {
                 "enabled": bool(ns.get("enabled") or False),
                 "cidrs": cidrs_list,
+                "dns_server": ns.get("dns_server") or "",
                 "interval_min": int(ns.get("interval_min") or 120),
                 "concurrency": int(ns.get("concurrency") or 64),
                 "method_timeout_s": int(ns.get("method_timeout_s") or 20),

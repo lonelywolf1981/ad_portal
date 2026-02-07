@@ -47,6 +47,8 @@ def ensure_schema() -> None:
             add("ALTER TABLE app_settings ADD COLUMN net_scan_enabled BOOLEAN NOT NULL DEFAULT 0")
         if "net_scan_cidrs" not in cols:
             add("ALTER TABLE app_settings ADD COLUMN net_scan_cidrs TEXT NOT NULL DEFAULT ''")
+        if "net_scan_dns_server" not in cols:
+            add("ALTER TABLE app_settings ADD COLUMN net_scan_dns_server VARCHAR(255) NOT NULL DEFAULT ''")
         if "net_scan_interval_min" not in cols:
             add("ALTER TABLE app_settings ADD COLUMN net_scan_interval_min INTEGER NOT NULL DEFAULT 120")
         if "net_scan_concurrency" not in cols:

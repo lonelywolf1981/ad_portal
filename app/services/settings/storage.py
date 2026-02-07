@@ -36,6 +36,11 @@ def _migrate_settings_row(st: AppSettings) -> bool:
         st.schema_version = current
         changed = True
 
+    # Initialize new fields if they don't exist
+    if not hasattr(st, 'net_scan_dns_server'):
+        st.net_scan_dns_server = ""
+        changed = True
+
     return changed
 
 
@@ -72,6 +77,7 @@ def get_settings(db: Session) -> AppSettingsSchema:
         net_scan={
             "enabled": bool(st.net_scan_enabled),
             "cidrs": _split_lines(st.net_scan_cidrs),
+            "dns_server": getattr(st, "net_scan_dns_server", ""),
             "interval_min": int(st.net_scan_interval_min or 120),
             "concurrency": int(getattr(st, "net_scan_concurrency", 64) or 64),
             "method_timeout_s": int(getattr(st, "net_scan_method_timeout_s", 20) or 20),
@@ -131,6 +137,7 @@ def save_settings(db: Session, data: AppSettingsSchema, *, keep_secrets_if_blank
     # Net scan
     st.net_scan_enabled = bool(data.net_scan.enabled)
     st.net_scan_cidrs = "\n".join(data.net_scan.cidrs or [])
+    st.net_scan_dns_server = (data.net_scan.dns_server or "").strip()
     st.net_scan_interval_min = int(data.net_scan.interval_min or 120)
     st.net_scan_concurrency = int(data.net_scan.concurrency or 64)
     setattr(st, "net_scan_method_timeout_s", int(data.net_scan.method_timeout_s or 20))

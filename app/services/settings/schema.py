@@ -6,7 +6,7 @@ from typing import Literal, Any
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-CURRENT_SCHEMA_VERSION = 2
+CURRENT_SCHEMA_VERSION = 3
 
 MAX_NETSCAN_CIDRS = 64  # hard limit for net_scan.cidrs
 
@@ -73,10 +73,20 @@ class ADSettings(BaseModel):
         s = (v or "").strip()
         if not s:
             return s
-        if any(ch in s for ch in ".,;"):
-            raise ValueError("Имя DC (короткое) не должно содержать точек/запятых.")
-        if not re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9_-]{0,62}[A-Za-z0-9])?", s):
-            raise ValueError("Некорректное имя DC: используйте буквы/цифры/дефис/подчёркивание без пробелов.")
+        
+        # Проверяем, является ли значение IP-адресом
+        import ipaddress
+        try:
+            ipaddress.ip_address(s)
+            # Если это IP-адрес, возвращаем его без дополнительной проверки
+            return s
+        except ValueError:
+            # Если не IP-адрес, применяем стандартные правила
+            if any(ch in s for ch in ".,;"):
+                raise ValueError("Имя DC (короткое) не должно содержать точек/запятых.")
+            if not re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9_-]{0,62}[A-Za-z0-9])?", s):
+                raise ValueError("Некорректное имя DC: используйте буквы/цифры/дефис/подчёркивание без пробелов.")
+        
         return s
 
     @field_validator("allowed_app_group_dns", "allowed_settings_group_dns")
@@ -100,6 +110,7 @@ class HostQuerySettings(BaseModel):
 class NetScanSettings(BaseModel):
     enabled: bool = Field(default=False)
     cidrs: list[str] = Field(default_factory=list)
+    dns_server: str = Field(default="", max_length=255)
 
     interval_min: int = Field(default=120, ge=1, le=24 * 60)
     concurrency: int = Field(default=64, ge=1, le=512)
@@ -184,6 +195,18 @@ def upgrade_payload(payload: dict) -> dict:
             payload["auth"] = {"mode": payload.get("auth_mode")}
 
         payload["schema_version"] = 2
+
+    # v2 -> v3 changes:
+    # - добавлено поле net_scan.dns_server
+    if v < 3:
+        if "net_scan" not in payload:
+            payload["net_scan"] = {}
+        if not isinstance(payload["net_scan"], dict):
+            payload["net_scan"] = {}
+        if "dns_server" not in payload["net_scan"]:
+            payload["net_scan"]["dns_server"] = ""
+
+        payload["schema_version"] = 3
 
     # normalize
     try:
