@@ -129,32 +129,11 @@ def ad_test_and_load_groups(db: Session, st: AppSettings, override: dict | None 
 
 
 def ad_authenticate(db: Session, st: AppSettings, username: str, password: str) -> tuple[dict | None, str]:
-    cfg = _ad_cfg_from_settings(st)
-    if not cfg:
-        return None, "AD не настроен (проверьте настройки)."
-
-    client = ADClient(cfg)
-    u = client.find_user_by_login(username)
-    if not u:
-        return None, "Неверный логин или пароль."
-
-    if not client.verify_password(u.dn, password):
-        return None, "Неверный логин или пароль."
-
-    allowed_app = set(split_group_dns(st.allowed_app_group_dns))
-    allowed_settings = set(split_group_dns(st.allowed_settings_group_dns))
-
-    user_groups = set(u.member_of)
-
-    if allowed_app and not (user_groups & allowed_app):
-        return None, "Доступ запрещён: пользователь не входит в разрешённые группы."
-
-    can_settings = bool(user_groups & allowed_settings) if allowed_settings else False
-
-    return {
-        "username": u.sam or username,
-        "display_name": u.display_name or u.sam or username,
-        "auth": "ad",
-        "settings": can_settings,
-        "groups": list(u.member_of),
-    }, "OK"
+    """Legacy function for backward compatibility."""
+    from .auth.ad import authenticate as ad_auth_new
+    result = ad_auth_new(username, password, st)
+    
+    if result.success:
+        return result.user_data, "OK"
+    else:
+        return None, result.error_message

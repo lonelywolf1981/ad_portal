@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 
-from ..deps import require_session_or_hx_redirect
+from ..deps import require_session_or_hx_redirect, require_initialized_or_redirect
 from ..ad import ADClient
 from ..net_scan import parse_cidrs, reverse_dns
 from ..presence import fmt_dt_ru, get_presence_map, normalize_login
@@ -19,7 +19,7 @@ router = APIRouter()
 
 @router.get("/users/search", response_class=HTMLResponse)
 def users_search(request: Request, q: str = ""):
-    auth = require_session_or_hx_redirect(request)
+    auth = require_initialized_or_redirect(request)
     if not isinstance(auth, dict):
         return auth
 
@@ -143,7 +143,7 @@ def users_search(request: Request, q: str = ""):
 
 @router.get("/users/details", response_class=HTMLResponse)
 def user_details(request: Request, id: str = ""):
-    auth = require_session_or_hx_redirect(request)
+    auth = require_initialized_or_redirect(request)
     if not isinstance(auth, dict):
         return auth
 
@@ -189,7 +189,7 @@ def user_view(request: Request, id: str = "", login: str = "", modal: int = 0):
 
     Принимает либо id (закодированный DN), либо login.
     """
-    auth = require_session_or_hx_redirect(request)
+    auth = require_initialized_or_redirect(request)
     if not isinstance(auth, dict):
         return auth
 

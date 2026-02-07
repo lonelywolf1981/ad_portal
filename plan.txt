@@ -1,0 +1,122 @@
+## Этап 1 — Settings как Single Source of Truth (максимальная отдача)
+
+1. **Схема настроек**
+   - `app/services/settings/schema.py`
+   - группы: `core/ui`, `auth`, `ad`, `host_query`, `net_scan`
+   - defaults + ограничения (timeouts, concurrency, CIDR, TLS mode).
+
+2. **Хранилище + версионирование схемы**
+   - `app/services/settings/storage.py`
+   - `get_settings()` / `save_settings()`
+   - `schema_version` + миграции (минимум: авто-апгрейд при чтении).
+
+3. **Валидация конфигурации**
+   - `app/services/settings/validator.py`
+   - `validate_ad()` (connect/bind + lightweight query)
+   - `validate_host_query()` (проверка доступности порта + опционально пробный запрос)
+   - `validate_net_scan()` (CIDR parse + лимиты).
+
+4. **UI-кнопки “Проверить” (HTMX)**
+   - добавить endpoints в `routers/settings.py`: `/settings/validate/ad|host|net`
+   - показывать результат в UI (успех/ошибка, текст, рекомендации).
+
+5. **Export/Import JSON**
+   - `app/services/settings/export_import.py`
+   - экспорт/импорт конфигурации с schema_version.
+
+**Критерий готовности:** пользователь может настроить систему и проверить AD/host/net без логов и без падений.
+
+---
+
+## Этап 2 — Уборка legacy без риска (deprecation → удаление)
+
+1. **AD legacy**
+   - перевести все импорты с `app/ldap_client.py` на `app/ad/*`
+   - `ldap_client.py` оставить как thin-wrapper с предупреждением (1 релиз), затем удалить.
+
+2. **Host legacy**
+   - перевести usage `app/host_logon.py` → `app/host_query/*`
+   - удалить `host_logon.py` после `rg`=0.
+
+3. **Единые модели результата**
+   - для host query и net scan: минимальные typed структуры (dataclass/pydantic) в своих модулях, без “общих” моделей.
+
+**Критерий готовности:** в проекте нет параллельных реализаций одного и того же (или только thin-wrapper).
+
+---
+
+## Этап 3 — Консолидация Auth (LOCAL/AD через один сервис)
+
+1. **Сервисный слой auth**
+   - `app/services/auth/local.py`, `ad.py`, `backend.py`
+   - единый метод: `authenticate(mode, username, password, settings)` → `AuthResult`.
+
+2. **Роутер auth = тонкий слой**
+   - роутер только валидирует ввод, вызывает сервис, пишет session, возвращает partial.
+
+3. **Снятие AD-логики с UI**
+   - логика LDAPS/StartTLS/verify TLS — внутри auth/ad service, UI только поля.
+
+**Критерий готовности:** роутеры не содержат AD-логики; смена режима auth не ломает UI.
+
+---
+
+## Этап 4 — First-run init mode (без отдельного setup wizard)
+
+1. **Флаг “инициализировано”**
+   - хранить в settings (`core.initialized: bool`) или вычислять по обязательным полям.
+
+2. **Режим `/settings?mode=init`**
+   - чеклист: admin/local или AD, AD connection, host-query creds, net-scan ranges.
+   - блокировать “боевые” разделы до выполнения минимума.
+
+3. **Опциональный middleware**
+   - если не initialized → редирект на init settings
+   - исключения: `/login`, `/settings`, `/health`, static.
+
+**Критерий готовности:** “чистая установка” всегда приводит в UI настройки, а не в JSON 401/500.
+
+---
+
+## Этап 5 — Hardening net-scan (нагрузка/предсказуемость)
+
+1. **Лимиты и таймауты только из settings schema**
+   - concurrency, timeouts, reverse DNS timeout, max hosts per scan (если нужно).
+
+2. **Контроль исполнения**
+   - защита от параллельных запусков (lock/token)
+   - понятный статус: running/finished/error + timestamp.
+
+3. **Стабильный вывод**
+   - единая сортировка/агрегация результатов
+   - детерминированные поля в UI.
+
+**Критерий готовности:** скан не создаёт пиков потоков и выполняется прогнозируемо.
+
+---
+
+## Этап 6 — Тесты и регресс-контроль (минимум, но полезно)
+
+1. **Unit-тесты**
+   - `settings.schema` (валидации)
+   - `settings.validator` (mock AD/ports)
+   - `auth.backend` (mock).
+
+2. **Smoke-тест сценариев**
+   - “save settings → validate AD”
+   - “login LOCAL/AD”
+   - “users search renders partial”.
+
+**Критерий готовности:** рефакторинг не ломает критические сценарии без мгновенного сигнала.
+
+---
+
+## Этап 7 — Чистка main.py и стартовая инициализация
+
+1. **Свести main.py к композиции**
+   - подключение роутеров
+   - middleware
+   - startup/shutdown hooks.
+
+2. **Инициализация сервисов**
+   - вынести “инициализацию БД/таблиц/дефолтов” в отдельный модуль, вызываемый из startup.

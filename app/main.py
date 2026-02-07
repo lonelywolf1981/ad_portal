@@ -15,8 +15,9 @@ from .webui import templates
 logging.getLogger("uvicorn.access").setLevel(logging.ERROR)
 
 
-# Keep schema bootstrapping at import time (previous behavior).
-ensure_schema()
+# Initialize application at import time
+from .bootstrap import initialize_application
+initialize_application()
 
 
 app = FastAPI(title="AD Portal")
@@ -25,12 +26,8 @@ app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 @app.on_event("startup")
 def _startup():
-    # Keep schema + bootstrap admin logic as-is.
-    ensure_schema()
-    env = get_env()
-    with db_session() as db:
-        get_or_create_settings(db)
-        ensure_bootstrap_admin(db, env.bootstrap_admin_user, hash_password(env.bootstrap_admin_password))
+    # Perform any startup tasks if needed
+    pass
 
 
 # Routers

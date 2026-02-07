@@ -18,8 +18,13 @@ def create_session(data: Dict[str, Any]) -> str:
 def read_session(token: str, max_age_seconds: int) -> Dict[str, Any] | None:
     try:
         data = _serializer().loads(token, max_age=max_age_seconds)
-        if not isinstance(data, dict) or "u" not in data:
+        # Compatibility: different builds used different payload shapes.
+        # 1) "wrapped" format: {"u": {user_fields...}}
+        # 2) "flat" format: {user_fields...}
+        if not isinstance(data, dict):
             return None
+        if "u" in data and isinstance(data.get("u"), dict):
+            return data["u"]
         return data
     except (BadSignature, SignatureExpired):
         return None

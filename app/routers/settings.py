@@ -90,6 +90,11 @@ def _coerce_settings_payload(payload: dict) -> object:
 
     data = {
         "schema_version": int(payload.get("schema_version") or CURRENT_SCHEMA_VERSION),
+        "core": {
+            "ui": {
+                "initialized": False  # будет вычислено в свойстве is_initialized
+            }
+        },
         "auth": {"mode": (payload.get("auth_mode") or "local").strip() or "local"},
         "auth_mode": (payload.get("auth_mode") or "local").strip() or "local",
         "ad": {
@@ -306,19 +311,48 @@ def _render_validate_result(res) -> HTMLResponse:
 
 
 @router.get("/settings", response_class=HTMLResponse)
-def settings_page(request: Request, saved: int = 0):
+def settings_page(request: Request, saved: int = 0, mode: str = ""):
     auth = require_session_or_hx_redirect(request)
     if not isinstance(auth, dict):
         return auth
 
-    user = auth
-    if not user.get("settings", False):
-        return HTMLResponse(
-            content="<div class='container py-4'><div class='alert alert-danger'>Доступ запрещён.</div></div>",
-            status_code=403,
-        )
     with db_session() as db:
         st = get_or_create_settings(db)
+        typed = get_typed_settings(db)
+        is_initialized = bool(typed.is_initialized)
+
+        # Bootstrap rule: пока приложение не инициализировано, разрешаем зайти в настройки
+        # любому аутентифицированному пользователю (иначе получается «курица/яйцо» для AD-режима).
+        # После инициализации — только тем, у кого есть флаг `settings`.
+        user = auth
+        if is_initialized and (not user.get("settings", False)):
+            return HTMLResponse(
+                content="<div class='container py-4'><div class='alert alert-danger'>Доступ запрещён.</div></div>",
+                status_code=403,
+            )
+
+        # Режим чеклиста включаем только по явному запросу (?mode=init).
+        # Иначе /settings всегда должен показывать форму настроек (иначе получается «вечный init»).
+        if mode == "init":
+            # Проверяем выполнение обязательных настроек
+            checklist = {
+                "has_local_or_ad_admin": st.auth_mode in ["local", "ad"],
+                "ad_configured": st.auth_mode != "ad" or (st.ad_domain and st.ad_dc_short and st.ad_bind_username),
+                "host_query_creds": bool(st.host_query_username),
+                "net_scan_ranges": bool(st.net_scan_enabled and st.net_scan_cidrs),
+            }
+            
+            return templates.TemplateResponse(
+                "settings_init.html",
+                {
+                    "request": request,
+                    "user": user,
+                    "st": st,
+                    "checklist": checklist,
+                    "all_checks_passed": all(checklist.values()),
+                    "is_initialized": is_initialized,
+                },
+            )
 
         net_scan_last_run_ui = "—"
         net_scan_last_token = ""
@@ -355,6 +389,7 @@ def settings_page(request: Request, saved: int = 0):
                 "request": request,
                 "user": user,
                 "st": st,
+                "is_initialized": is_initialized,
                 "saved": saved,
                 "groups_cache": groups_cache_objs,
                 "dn_name_map": dn_name_map,
@@ -396,13 +431,19 @@ def settings_save(
     auth = require_session_or_hx_redirect(request)
     if not isinstance(auth, dict):
         return auth
-    if not auth.get("settings", False):
-        return HTMLResponse(
-            content="<div class='container py-4'><div class='alert alert-danger'>Доступ запрещён.</div></div>",
-            status_code=403,
-        )
 
     with db_session() as db:
+        typed = get_typed_settings(db)
+        is_initialized = bool(typed.is_initialized)
+
+        # В init-режиме разрешаем сохранять настройки любому аутентифицированному пользователю.
+        # После инициализации — только с правом settings.
+        if is_initialized and (not auth.get("settings", False)):
+            return HTMLResponse(
+                content="<div class='container py-4'><div class='alert alert-danger'>Доступ запрещён.</div></div>",
+                status_code=403,
+            )
+
         st = get_or_create_settings(db)
         try:
             _call_save_settings_compat(
@@ -472,10 +513,12 @@ def settings_validate_ad(
     auth = require_session_or_hx_redirect(request)
     if not isinstance(auth, dict):
         return auth
-    if not auth.get("settings", False):
-        return _alert_response(False, "Доступ запрещён.", status_code=403)
-
     with db_session() as db:
+        typed = get_typed_settings(db)
+        is_initialized = bool(typed.is_initialized)
+        if is_initialized and (not auth.get("settings", False)):
+            return _alert_response(False, "Доступ запрещён.", status_code=403)
+
         eff = _effective_settings_from_form(
             db,
             {
@@ -505,10 +548,12 @@ def settings_validate_host(
     auth = require_session_or_hx_redirect(request)
     if not isinstance(auth, dict):
         return auth
-    if not auth.get("settings", False):
-        return _alert_response(False, "Доступ запрещён.", status_code=403)
-
     with db_session() as db:
+        typed = get_typed_settings(db)
+        is_initialized = bool(typed.is_initialized)
+        if is_initialized and (not auth.get("settings", False)):
+            return _alert_response(False, "Доступ запрещён.", status_code=403)
+
         eff = _effective_settings_from_form(
             db,
             {
@@ -533,10 +578,12 @@ def settings_validate_net(
     auth = require_session_or_hx_redirect(request)
     if not isinstance(auth, dict):
         return auth
-    if not auth.get("settings", False):
-        return _alert_response(False, "Доступ запрещён.", status_code=403)
-
     with db_session() as db:
+        typed = get_typed_settings(db)
+        is_initialized = bool(typed.is_initialized)
+        if is_initialized and (not auth.get("settings", False)):
+            return _alert_response(False, "Доступ запрещён.", status_code=403)
+
         eff = _effective_settings_from_form(
             db,
             {
@@ -555,11 +602,13 @@ def settings_export_json(request: Request, include_secrets: int = 0):
     auth = require_session_or_hx_redirect(request)
     if not isinstance(auth, dict):
         return auth
-    if not auth.get("settings", False):
-        return JSONResponse({"ok": False, "message": "forbidden"}, status_code=403)
-
     with db_session() as db:
-        data = get_typed_settings(db)
+        typed = get_typed_settings(db)
+        is_initialized = bool(typed.is_initialized)
+        if is_initialized and (not auth.get("settings", False)):
+            return JSONResponse({"ok": False, "message": "forbidden"}, status_code=403)
+
+        data = typed
         payload = export_settings(data, include_secrets=bool(include_secrets))
 
     schema_v = int(payload.get("schema_version") or 0)
@@ -573,11 +622,14 @@ async def settings_import_json(request: Request, file: UploadFile = File(...)):
     auth = require_session_or_hx_redirect(request)
     if not isinstance(auth, dict):
         return auth
-    if not auth.get("settings", False):
-        return HTMLResponse(
-            content="<div class='container py-4'><div class='alert alert-danger'>Доступ запрещён.</div></div>",
-            status_code=403,
-        )
+    with db_session() as db:
+        typed = get_typed_settings(db)
+        is_initialized = bool(typed.is_initialized)
+        if is_initialized and (not auth.get("settings", False)):
+            return HTMLResponse(
+                content="<div class='container py-4'><div class='alert alert-danger'>Доступ запрещён.</div></div>",
+                status_code=403,
+            )
 
     hx = (request.headers.get('HX-Request', '') or '').lower() == 'true'
 
@@ -628,13 +680,16 @@ def settings_ad_test(
     auth = require_session_or_hx_redirect(request)
     if not isinstance(auth, dict):
         return auth
-    if not auth.get("settings", False):
-        return HTMLResponse(
-            content="<div class='alert alert-danger py-2 mb-3'>Доступ запрещён.</div>",
-            status_code=403,
-        )
-
     with db_session() as db:
+        typed = get_typed_settings(db)
+        is_initialized = bool(typed.is_initialized)
+        if is_initialized and (not auth.get("settings", False)):
+            return HTMLResponse(
+                content="<div class='alert alert-danger py-2 mb-3'>Доступ запрещён.</div>",
+                status_code=403,
+            )
+
+        st = get_or_create_settings(db)
         st = get_or_create_settings(db)
 
         ok, msg, _groups = ad_test_and_load_groups(
@@ -719,13 +774,15 @@ def settings_net_scan_run(request: Request):
     auth = require_session_or_hx_redirect(request)
     if not isinstance(auth, dict):
         return auth
-    if not auth.get("settings", False):
-        return HTMLResponse(
-            content="<div class='alert alert-danger py-2 mb-0'>Доступ запрещён.</div>",
-            status_code=403,
-        )
-
     with db_session() as db:
+        typed = get_typed_settings(db)
+        is_initialized = bool(typed.is_initialized)
+        if is_initialized and (not auth.get("settings", False)):
+            return HTMLResponse(
+                content="<div class='alert alert-danger py-2 mb-0'>Доступ запрещён.</div>",
+                status_code=403,
+            )
+
         st = get_or_create_settings(db)
         if not getattr(st, "net_scan_enabled", False):
             return HTMLResponse(

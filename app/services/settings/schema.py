@@ -234,6 +234,47 @@ class AppSettingsSchema(BaseModel):
     host_query: HostQuerySettings = Field(default_factory=HostQuerySettings)
     net_scan: NetScanSettings = Field(default_factory=NetScanSettings)
 
+    @property
+    def is_initialized(self) -> bool:
+        """Проверяет, инициализировано ли приложение.
+        
+        Инициализация определяется по наличию обязательных полей.
+        """
+        # Минимальная инициализация по требованиям UI-чеклиста:
+        # 1) выбран режим аутентификации (local/ad)
+        # 2) если выбран AD — заполнены базовые параметры подключения
+        # 3) заполнены учётные данные для опроса хостов
+        # 4) задан хотя бы один диапазон сетевого сканирования и включён netscan
+
+        auth_configured = self.auth_mode in ["local", "ad"]
+
+        if self.auth_mode == "ad":
+            ad_configured = bool(
+                (self.ad.domain or "").strip()
+                and (self.ad.dc_short or "").strip()
+                and (self.ad.bind_username or "").strip()
+            )
+        else:
+            ad_configured = True
+
+        host_query_configured = bool((self.host_query.username or "").strip())
+
+        # Для чеклиста требуется именно "включено + диапазоны".
+        # В разных местах payload может быть строкой (textarea) или уже списком CIDR.
+        raw_cidrs = self.net_scan.cidrs
+        if raw_cidrs is None:
+            cidrs_value = ""
+        elif isinstance(raw_cidrs, list):
+            # Берём только непустые элементы после trim.
+            cidrs_value = "\n".join([str(x).strip() for x in raw_cidrs if str(x).strip()])
+        else:
+            cidrs_value = str(raw_cidrs).strip()
+
+        net_scan_configured = bool(self.net_scan.enabled and cidrs_value)
+
+        return bool(auth_configured and ad_configured and host_query_configured and net_scan_configured)
+
+
     @model_validator(mode="before")
     @classmethod
     def _upgrade_before_validate(cls, data: Any):

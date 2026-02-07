@@ -3,3 +3,8 @@ data
 *.zip
 __pycache__/
 *.pyc
+QWEN.md
+.qwen
+.pytest_cache
+tests
+

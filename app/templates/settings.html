@@ -2,6 +2,13 @@
 {% block content %}
   {% include "partials/net_scan_poll.html" %}
 
+{% if not is_initialized %}
+<div class="alert alert-warning">
+  <strong>Внимание!</strong> Приложение не инициализировано. Некоторые функции могут быть недоступны.
+  <a href="?mode=init" class="alert-link">Проверить чеклист инициализации</a>
+</div>
+{% endif %}
+
 <div class="d-flex align-items-center justify-content-between mb-3">
   <h1 class="h5 m-0">Настройки</h1>
   {% if saved %}

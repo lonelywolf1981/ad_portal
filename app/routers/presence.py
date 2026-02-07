@@ -6,7 +6,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from openpyxl import Workbook
 
-from ..deps import require_session_or_hx_redirect
+from ..deps import require_session_or_hx_redirect, require_initialized_or_redirect
 from ..mappings import cleanup_host_user_matches, search_host_user_matches
 from ..presence import fmt_dt_ru
 from ..repo import db_session
@@ -18,7 +18,7 @@ router = APIRouter()
 
 @router.get("/presence/search", response_class=HTMLResponse)
 def presence_search(request: Request, q: str = "", sort: str = "when", dir: str = "desc"):
-    auth = require_session_or_hx_redirect(request)
+    auth = require_initialized_or_redirect(request)
     if not isinstance(auth, dict):
         return auth
 
@@ -75,7 +75,7 @@ def presence_search(request: Request, q: str = "", sort: str = "when", dir: str 
 
 @router.get("/presence/export.xlsx")
 def presence_export_xlsx(request: Request, q: str = "", sort: str = "when", dir: str = "desc"):
-    auth = require_session_or_hx_redirect(request)
+    auth = require_initialized_or_redirect(request)
     if not isinstance(auth, dict):
         # If session is missing, always redirect for a download endpoint.
         return RedirectResponse(url="/login", status_code=303)

@@ -92,3 +92,4 @@ def ensure_schema() -> None:
             add("ALTER TABLE app_settings ADD COLUMN last_ad_test_ok BOOLEAN NOT NULL DEFAULT 0")
         if "last_ad_test_message" not in cols:
             add("ALTER TABLE app_settings ADD COLUMN last_ad_test_message VARCHAR(512) NOT NULL DEFAULT ''")
+        

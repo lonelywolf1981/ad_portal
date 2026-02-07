@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 
-from ..deps import require_session_or_hx_redirect
+from ..deps import require_initialized_or_redirect
 from ..repo import db_session, get_or_create_settings
 from ..timezone_utils import format_ru_local
 from ..webui import templates
@@ -14,7 +14,7 @@ router = APIRouter()
 
 @router.get("/", response_class=HTMLResponse)
 def index(request: Request):
-    auth = require_session_or_hx_redirect(request)
+    auth = require_initialized_or_redirect(request)
     if not isinstance(auth, dict):
         return auth
     user = auth
@@ -61,7 +61,7 @@ def net_scan_poll(request: Request, last: str = ""):
     - While scan is running: keep polling (no reload).
     - When a new scan *finishes* (last_run token changes and lock is cleared): ask HTMX to refresh the page.
     """
-    auth = require_session_or_hx_redirect(request)
+    auth = require_initialized_or_redirect(request)
     if not isinstance(auth, dict):
         return auth
 

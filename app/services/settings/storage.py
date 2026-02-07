@@ -8,7 +8,7 @@ from ...crypto import decrypt_str, encrypt_str
 from ...models import AppSettings
 from ...repo import get_or_create_settings
 
-from .schema import AppSettingsSchema, CURRENT_SCHEMA_VERSION
+from .schema import AppSettingsSchema, CURRENT_SCHEMA_VERSION, CoreSettings, CoreUISettings
 
 
 def _migrate_settings_row(st: AppSettings) -> bool:
@@ -54,6 +54,11 @@ def get_settings(db: Session) -> AppSettingsSchema:
 
     return AppSettingsSchema(
         schema_version=int(getattr(st, "schema_version", CURRENT_SCHEMA_VERSION) or CURRENT_SCHEMA_VERSION),
+        core=CoreSettings(
+            ui=CoreUISettings(
+                initialized=False  # будет вычислено в свойстве is_initialized
+            )
+        ),
         auth={"mode": auth_mode},
         auth_mode=auth_mode,  # legacy convenience for templates/forms
         ad={
