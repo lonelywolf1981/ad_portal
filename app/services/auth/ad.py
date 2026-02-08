@@ -15,7 +15,9 @@ def authenticate(username: str, password: str, settings) -> AuthResult:
     Returns:
         AuthResult: Результат аутентификации
     """
-    from ...ad import ad_cfg_from_settings
+    # NOTE: ad_cfg_from_settings lives in app/services/ad.py (Stage 2 refactor).
+    # The previous import from app/ad was wrong and breaks AD login at runtime.
+    from ..ad import ad_cfg_from_settings
     
     cfg = ad_cfg_from_settings(settings)
     if not cfg:

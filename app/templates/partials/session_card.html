@@ -4,12 +4,18 @@
 
     <div class="row small">
       <div class="col-md-6">
-        <div class="text-secondary">Пользователь: <strong>{{ user["u"] }}</strong></div>
-        <div class="text-secondary">Тип: <strong>{{ user["auth"] }}</strong></div>
+        {# Backward/forward compatibility:
+           - old builds stored username in key "u"
+           - current builds store username in key "username" #}
+        <div class="text-secondary">Пользователь: <strong>{{ user.get("username") or user.get("u", "") }}</strong></div>
+        <div class="text-secondary">Тип: <strong>{{ user.get("auth", "") }}</strong></div>
         <div class="text-secondary">Доступ к настройкам: <strong>{{ "Да" if user.get("settings") else "Нет" }}</strong></div>
       </div>
       <div class="col-md-6">
-        <div class="text-secondary">Отображаемое имя: <strong>{{ user.get("dn","") }}</strong></div>
+        {# Backward/forward compatibility:
+           - old builds stored display name in key "dn"
+           - current builds store display name in key "display_name" #}
+        <div class="text-secondary">Отображаемое имя: <strong>{{ user.get("display_name") or user.get("dn", "") }}</strong></div>
       </div>
     </div>
 
