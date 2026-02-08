@@ -23,9 +23,14 @@ def index(request: Request):
     net_scan_last_summary = ""
     net_scan_last_token = ""
     net_scan_is_running = False
+    net_scan_enabled = False
+    net_scan_ready = False
     try:
         with db_session() as db:
             st = get_or_create_settings(db)
+            net_scan_enabled = bool(getattr(st, "net_scan_enabled", False))
+            cidrs_txt = (getattr(st, "net_scan_cidrs", "") or "").strip()
+            net_scan_ready = bool(net_scan_enabled and cidrs_txt)
             dt = getattr(st, "net_scan_last_run_ts", None)
             if dt:
                 net_scan_last_run = format_ru_local(dt)
@@ -49,6 +54,8 @@ def index(request: Request):
             "net_scan_last_summary": net_scan_last_summary,
             "net_scan_last_token": net_scan_last_token,
             "net_scan_is_running": net_scan_is_running,
+            "net_scan_enabled": net_scan_enabled,
+            "net_scan_ready": net_scan_ready,
         },
     )
 
@@ -71,6 +78,7 @@ def net_scan_poll(request: Request, last: str = ""):
     try:
         with db_session() as db:
             st = get_or_create_settings(db)
+            net_scan_enabled = bool(getattr(st, "net_scan_enabled", False))
             dt = getattr(st, "net_scan_last_run_ts", None)
             if dt:
                 try:

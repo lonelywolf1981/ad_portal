@@ -2,10 +2,11 @@
 {% block content %}
   {% include "partials/net_scan_poll.html" %}
 
-{% if not is_initialized %}
-<div class="alert alert-warning">
-  <strong>Внимание!</strong> Приложение не инициализировано. Некоторые функции могут быть недоступны.
-  <a href="?mode=init" class="alert-link">Проверить чеклист инициализации</a>
+{% if not net_scan_ready %}
+<div class="alert alert-info">
+  <strong>Проверьте чеклист:</strong> вкладка <strong>«Сопоставления»</strong> появится, когда вы
+  <strong>включите периодическое сканирование сети</strong> и зададите <strong>диапазоны CIDR</strong>.
+  <a href="?mode=init" class="alert-link">Открыть чеклист</a>
 </div>
 {% endif %}
 

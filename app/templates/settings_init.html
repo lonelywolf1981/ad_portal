@@ -9,58 +9,80 @@
   <div class="col-12 col-lg-8">
     <div class="card shadow-sm">
       <div class="card-body">
-        <h2 class="h6 mb-3">Чеклист инициализации</h2>
-        
-        <ul class="list-group list-group-flush">
+        <h2 class="h6 mb-3">Чеклист</h2>
+
+        <div class="small text-secondary mb-2">Обязательные настройки для базовой работы</div>
+        <ul class="list-group list-group-flush mb-3">
           <li class="list-group-item d-flex justify-content-between align-items-center">
-            <span>Режим аутентификации (local или AD)</span>
-            {% if checklist.has_local_or_ad_admin %}
+            <span>Режим аутентификации (LOCAL или AD)</span>
+            {% if mandatory.has_local_or_ad_admin %}
               <span class="badge text-bg-success">Готово</span>
             {% else %}
               <span class="badge text-bg-warning">Требуется</span>
             {% endif %}
           </li>
-          
+
           <li class="list-group-item d-flex justify-content-between align-items-center">
             <span>Настройки подключения к AD (если выбран режим AD)</span>
-            {% if checklist.ad_configured %}
+            {% if mandatory.ad_configured %}
               <span class="badge text-bg-success">Готово</span>
             {% else %}
               <span class="badge text-bg-warning">Требуется</span>
             {% endif %}
           </li>
-          
+
           <li class="list-group-item d-flex justify-content-between align-items-center">
             <span>Учетные данные для опроса хостов</span>
-            {% if checklist.host_query_creds %}
-              <span class="badge text-bg-success">Готово</span>
-            {% else %}
-              <span class="badge text-bg-warning">Требуется</span>
-            {% endif %}
-          </li>
-          
-          <li class="list-group-item d-flex justify-content-between align-items-center">
-            <span>Диапазоны для сетевого сканирования</span>
-            {% if checklist.net_scan_ranges %}
+            {% if mandatory.host_query_creds %}
               <span class="badge text-bg-success">Готово</span>
             {% else %}
               <span class="badge text-bg-warning">Требуется</span>
             {% endif %}
           </li>
         </ul>
+
+        <div class="small text-secondary mb-2">Для появления вкладки «Сопоставления»</div>
+        <ul class="list-group list-group-flush">
+          <li class="list-group-item d-flex justify-content-between align-items-center">
+            <span>Периодическое сканирование сети (net-scan)</span>
+            {% if mapping.net_scan_enabled %}
+              <span class="badge text-bg-success">Включено</span>
+            {% else %}
+              <span class="badge text-bg-warning">Выключено</span>
+            {% endif %}
+          </li>
+          <li class="list-group-item d-flex justify-content-between align-items-center">
+            <span>Диапазоны CIDR для сканирования</span>
+            {% if mapping.net_scan_ranges %}
+              <span class="badge text-bg-success">Заданы</span>
+            {% else %}
+              <span class="badge text-bg-warning">Не заданы</span>
+            {% endif %}
+          </li>
+        </ul>
         
         <div class="mt-4">
-          {% if all_checks_passed %}
+          {% if all_mandatory_passed %}
             <div class="alert alert-success">
-              <strong>Поздравляем!</strong> Все обязательные настройки выполнены. Приложение готово к использованию.
+              <strong>Базовая инициализация выполнена.</strong> Поиск пользователей и опрос хостов доступны.
             </div>
-            <a href="/settings" class="btn btn-primary">Открыть настройки</a>
+          {% else %}
+            <div class="alert alert-warning">
+              <strong>Не все обязательные пункты выполнены.</strong> Заполните настройки выше.
+            </div>
+          {% endif %}
+
+          {% if net_scan_ready %}
+            <div class="alert alert-success">
+              Вкладка <strong>«Сопоставления»</strong> активна (net-scan включён, диапазоны заданы).
+            </div>
           {% else %}
             <div class="alert alert-info">
-              <strong>Внимание!</strong> Для полноценной работы приложения необходимо выполнить все пункты чеклиста.
+              Чтобы появилась вкладка <strong>«Сопоставления»</strong>, включите периодическое сканирование и задайте CIDR-диапазоны.
             </div>
-            <a href="/settings" class="btn btn-primary">Открыть настройки</a>
           {% endif %}
+
+          <a href="/settings" class="btn btn-primary">Открыть настройки</a>
         </div>
       </div>
     </div>

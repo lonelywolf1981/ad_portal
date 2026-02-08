@@ -321,6 +321,12 @@ def settings_page(request: Request, saved: int = 0, mode: str = ""):
         typed = get_typed_settings(db)
         is_initialized = bool(typed.is_initialized)
 
+        # Для вкладки «Сопоставления»: требуется включённый периодический net-scan и заданные диапазоны.
+        net_scan_ready = bool(
+            bool(getattr(st, "net_scan_enabled", False))
+            and bool((getattr(st, "net_scan_cidrs", "") or "").strip())
+        )
+
         # Bootstrap rule: пока приложение не инициализировано, разрешаем зайти в настройки
         # любому аутентифицированному пользователю (иначе получается «курица/яйцо» для AD-режима).
         # После инициализации — только тем, у кого есть флаг `settings`.
@@ -334,12 +340,17 @@ def settings_page(request: Request, saved: int = 0, mode: str = ""):
         # Режим чеклиста включаем только по явному запросу (?mode=init).
         # Иначе /settings всегда должен показывать форму настроек (иначе получается «вечный init»).
         if mode == "init":
-            # Проверяем выполнение обязательных настроек
-            checklist = {
+            # Чеклист:
+            # - «обязательное» для базовой работы
+            # - «для вкладки Сопоставления» (не блокирует остальное, но управляет вкладкой)
+            mandatory = {
                 "has_local_or_ad_admin": st.auth_mode in ["local", "ad"],
                 "ad_configured": st.auth_mode != "ad" or (st.ad_domain and st.ad_dc_short and st.ad_bind_username),
                 "host_query_creds": bool(st.host_query_username),
-                "net_scan_ranges": bool(st.net_scan_enabled and st.net_scan_cidrs),
+            }
+            mapping = {
+                "net_scan_enabled": bool(st.net_scan_enabled),
+                "net_scan_ranges": bool((st.net_scan_cidrs or "").strip()),
             }
             
             return templates.TemplateResponse(
@@ -348,8 +359,10 @@ def settings_page(request: Request, saved: int = 0, mode: str = ""):
                     "request": request,
                     "user": user,
                     "st": st,
-                    "checklist": checklist,
-                    "all_checks_passed": all(checklist.values()),
+                    "mandatory": mandatory,
+                    "mapping": mapping,
+                    "all_mandatory_passed": all(mandatory.values()),
+                    "net_scan_ready": net_scan_ready,
                     "is_initialized": is_initialized,
                 },
             )
@@ -390,6 +403,7 @@ def settings_page(request: Request, saved: int = 0, mode: str = ""):
                 "user": user,
                 "st": st,
                 "is_initialized": is_initialized,
+                "net_scan_ready": net_scan_ready,
                 "saved": saved,
                 "groups_cache": groups_cache_objs,
                 "dn_name_map": dn_name_map,

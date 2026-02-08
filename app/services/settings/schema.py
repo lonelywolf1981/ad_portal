@@ -244,7 +244,10 @@ class AppSettingsSchema(BaseModel):
         # 1) выбран режим аутентификации (local/ad)
         # 2) если выбран AD — заполнены базовые параметры подключения
         # 3) заполнены учётные данные для опроса хостов
-        # 4) задан хотя бы один диапазон сетевого сканирования и включён netscan
+        # 4) сетевое сканирование (netscan) — опционально.
+        #
+        # Если оно выключено — это не должно блокировать основной функционал.
+        # Если включено — диапазоны и остальные параметры валидируются отдельно.
 
         auth_configured = self.auth_mode in ["local", "ad"]
 
@@ -259,20 +262,7 @@ class AppSettingsSchema(BaseModel):
 
         host_query_configured = bool((self.host_query.username or "").strip())
 
-        # Для чеклиста требуется именно "включено + диапазоны".
-        # В разных местах payload может быть строкой (textarea) или уже списком CIDR.
-        raw_cidrs = self.net_scan.cidrs
-        if raw_cidrs is None:
-            cidrs_value = ""
-        elif isinstance(raw_cidrs, list):
-            # Берём только непустые элементы после trim.
-            cidrs_value = "\n".join([str(x).strip() for x in raw_cidrs if str(x).strip()])
-        else:
-            cidrs_value = str(raw_cidrs).strip()
-
-        net_scan_configured = bool(self.net_scan.enabled and cidrs_value)
-
-        return bool(auth_configured and ad_configured and host_query_configured and net_scan_configured)
+        return bool(auth_configured and ad_configured and host_query_configured)
 
 
     @model_validator(mode="before")

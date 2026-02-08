@@ -5,19 +5,10 @@ import logging
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from .env_settings import get_env
-from .repo import db_session, ensure_bootstrap_admin, get_or_create_settings
-from .schema import ensure_schema
-from .security import hash_password
-from .webui import templates
+from .bootstrap import initialize_application
 
 # Настройка логирования - только ошибки
 logging.getLogger("uvicorn.access").setLevel(logging.ERROR)
-
-
-# Initialize application at import time
-from .bootstrap import initialize_application
-initialize_application()
 
 
 app = FastAPI(title="AD Portal")
@@ -25,9 +16,9 @@ app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 
 @app.on_event("startup")
-def _startup():
-    # Perform any startup tasks if needed
-    pass
+def _startup() -> None:
+    # IMPORTANT: do not run bootstrap at import time (tests, reload, workers)
+    initialize_application()
 
 
 # Routers
