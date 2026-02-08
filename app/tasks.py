@@ -121,11 +121,12 @@ def run_network_scan() -> dict:
             db.commit()
             return {"status": "no_creds"}
 
+        # Background scan has its own per-method timeout setting.
         per_method_timeout_s = clamp_int(
-            getattr(st, "host_query_timeout_s", 60),
-            default=60,
+            getattr(st, "net_scan_method_timeout_s", 20),
+            default=20,
             min_v=5,
-            max_v=300,
+            max_v=180,
         )
         conc = clamp_int(getattr(st, "net_scan_concurrency", 64), default=64, min_v=1, max_v=256)
         probe_ms = clamp_int(getattr(st, "net_scan_probe_timeout_ms", 350), default=350, min_v=50, max_v=5000)

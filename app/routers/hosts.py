@@ -4,11 +4,11 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 
 from ..crypto import decrypt_str
-from ..deps import require_session_or_hx_redirect
-from ..host_logon import find_logged_on_users
+from ..deps import require_session_or_hx_redirect, require_initialized_or_redirect
+from ..host_query import find_logged_on_users
 from ..repo import db_session, get_or_create_settings
 from ..utils.numbers import clamp_int
-from ..webui import templates
+from ..webui import htmx_alert, templates, ui_result
 
 
 router = APIRouter()
@@ -17,12 +17,18 @@ router = APIRouter()
 @router.get("/hosts/logon", response_class=HTMLResponse)
 def hosts_logon(request: Request, target: str = ""):
     """Определить, какой пользователь(и) залогинен на удалённом хосте."""
-    auth = require_session_or_hx_redirect(request)
+    auth = require_initialized_or_redirect(request)
     if not isinstance(auth, dict):
         return auth
 
+    is_htmx = request.headers.get("HX-Request") is not None
+
     target = (target or "").strip()
     if len(target) < 2:
+        if is_htmx:
+            # HTMX does not swap content on 4xx/5xx by default.
+            # Return 200 with an alert fragment so the user sees the message.
+            return htmx_alert(ui_result(False, "Введите имя хоста или IP."), status_code=200)
         return templates.TemplateResponse(
             "host_logon_results.html",
             {

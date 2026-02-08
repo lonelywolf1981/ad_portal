@@ -30,6 +30,10 @@ def ensure_schema() -> None:
         def add(sql: str) -> None:
             conn.exec_driver_sql(sql)
 
+        # Settings schema version
+        if "schema_version" not in cols:
+            add("ALTER TABLE app_settings ADD COLUMN schema_version INTEGER NOT NULL DEFAULT 1")
+
         # Remote host logon query settings
         if "host_query_username" not in cols:
             add("ALTER TABLE app_settings ADD COLUMN host_query_username VARCHAR(128) NOT NULL DEFAULT ''")
@@ -43,6 +47,8 @@ def ensure_schema() -> None:
             add("ALTER TABLE app_settings ADD COLUMN net_scan_enabled BOOLEAN NOT NULL DEFAULT 0")
         if "net_scan_cidrs" not in cols:
             add("ALTER TABLE app_settings ADD COLUMN net_scan_cidrs TEXT NOT NULL DEFAULT ''")
+        if "net_scan_dns_server" not in cols:
+            add("ALTER TABLE app_settings ADD COLUMN net_scan_dns_server VARCHAR(255) NOT NULL DEFAULT ''")
         if "net_scan_interval_min" not in cols:
             add("ALTER TABLE app_settings ADD COLUMN net_scan_interval_min INTEGER NOT NULL DEFAULT 120")
         if "net_scan_concurrency" not in cols:
@@ -56,7 +62,34 @@ def ensure_schema() -> None:
             add("ALTER TABLE app_settings ADD COLUMN net_scan_last_run_ts DATETIME")
         if "net_scan_last_summary" not in cols:
             add("ALTER TABLE app_settings ADD COLUMN net_scan_last_summary TEXT NOT NULL DEFAULT ''")
-        if "net_scan_is_running" not in cols:
-            add("ALTER TABLE app_settings ADD COLUMN net_scan_is_running BOOLEAN NOT NULL DEFAULT 0")
-        if "net_scan_run_started_ts" not in cols:
-            add("ALTER TABLE app_settings ADD COLUMN net_scan_run_started_ts DATETIME")
+        # net_scan_lock_ts is the authoritative marker that a background scan is in progress.
+        # (Older builds used net_scan_is_running/net_scan_run_started_ts; we keep compatibility by
+        # simply not requiring those legacy columns.)
+        if "net_scan_lock_ts" not in cols:
+            add("ALTER TABLE app_settings ADD COLUMN net_scan_lock_ts DATETIME")
+        # AD TLS validation / custom CA
+        if "ad_tls_validate" not in cols:
+            add("ALTER TABLE app_settings ADD COLUMN ad_tls_validate BOOLEAN NOT NULL DEFAULT 0")
+        if "ad_ca_pem" not in cols:
+            add("ALTER TABLE app_settings ADD COLUMN ad_ca_pem TEXT NOT NULL DEFAULT ''")
+        
+        # Access control: allowed groups
+        if "allowed_app_group_dns" not in cols:
+            add("ALTER TABLE app_settings ADD COLUMN allowed_app_group_dns TEXT NOT NULL DEFAULT ''")
+        if "allowed_settings_group_dns" not in cols:
+            add("ALTER TABLE app_settings ADD COLUMN allowed_settings_group_dns TEXT NOT NULL DEFAULT ''")
+        
+        # Cached AD groups (for UI/auto-complete)
+        if "groups_cache_json" not in cols:
+            add("ALTER TABLE app_settings ADD COLUMN groups_cache_json TEXT NOT NULL DEFAULT '[]'")
+        if "groups_cache_ts" not in cols:
+            add("ALTER TABLE app_settings ADD COLUMN groups_cache_ts DATETIME")
+        
+        # Last AD connection test result (for UX)
+        if "last_ad_test_ts" not in cols:
+            add("ALTER TABLE app_settings ADD COLUMN last_ad_test_ts DATETIME")
+        if "last_ad_test_ok" not in cols:
+            add("ALTER TABLE app_settings ADD COLUMN last_ad_test_ok BOOLEAN NOT NULL DEFAULT 0")
+        if "last_ad_test_message" not in cols:
+            add("ALTER TABLE app_settings ADD COLUMN last_ad_test_message VARCHAR(512) NOT NULL DEFAULT ''")
+        

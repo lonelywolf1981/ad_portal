@@ -3,8 +3,8 @@ from __future__ import annotations
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 
-from ..deps import require_session_or_hx_redirect
-from ..ldap_client import ADClient
+from ..deps import require_session_or_hx_redirect, require_initialized_or_redirect
+from ..ad import ADClient
 from ..net_scan import parse_cidrs, reverse_dns
 from ..presence import fmt_dt_ru, get_presence_map, normalize_login
 from ..repo import db_session, get_or_create_settings
@@ -12,19 +12,28 @@ from ..services import ad_cfg_from_settings
 from ..utils.dn import dn_to_id, id_to_dn
 from ..utils.net import looks_like_ipv4, short_hostname
 from ..viewmodels.user_details import build_detail_items
-from ..webui import templates
+from ..webui import htmx_alert, templates, ui_result
 
 router = APIRouter()
 
 
 @router.get("/users/search", response_class=HTMLResponse)
 def users_search(request: Request, q: str = ""):
-    auth = require_session_or_hx_redirect(request)
+    auth = require_initialized_or_redirect(request)
     if not isinstance(auth, dict):
         return auth
 
+    is_htmx = request.headers.get("HX-Request") is not None
+
     q = (q or "").strip()
     if len(q) < 2:
+        if is_htmx:
+            return htmx_alert(
+                ui_result(False, "Введите минимум 2 символа для поиска."),
+                # HTMX does not swap content on 4xx/5xx by default.
+                # Return 200 with an alert fragment so the user sees the message.
+                status_code=200,
+            )
         return templates.TemplateResponse(
             "users_results.html",
             {"request": request, "users": [], "error": "Введите минимум 2 символа для поиска."},
@@ -34,6 +43,14 @@ def users_search(request: Request, q: str = ""):
         st = get_or_create_settings(db)
         cfg = ad_cfg_from_settings(st)
         if not cfg:
+            if is_htmx:
+                return htmx_alert(
+                    ui_result(
+                        False,
+                        "AD не настроен. Откройте «Настройки» и заполните параметры подключения.",
+                    ),
+                    status_code=200,
+                )
             return templates.TemplateResponse(
                 "users_results.html",
                 {
@@ -46,6 +63,8 @@ def users_search(request: Request, q: str = ""):
     client = ADClient(cfg)
     ok, msg, items = client.search_users(q, limit=40)
     if not ok:
+        if is_htmx:
+            return htmx_alert(ui_result(False, msg or "Ошибка поиска в AD."), status_code=200)
         return templates.TemplateResponse(
             "users_results.html",
             {"request": request, "users": [], "error": msg or "Ошибка поиска в AD."},
@@ -124,7 +143,7 @@ def users_search(request: Request, q: str = ""):
 
 @router.get("/users/details", response_class=HTMLResponse)
 def user_details(request: Request, id: str = ""):
-    auth = require_session_or_hx_redirect(request)
+    auth = require_initialized_or_redirect(request)
     if not isinstance(auth, dict):
         return auth
 
@@ -170,7 +189,7 @@ def user_view(request: Request, id: str = "", login: str = "", modal: int = 0):
 
     Принимает либо id (закодированный DN), либо login.
     """
-    auth = require_session_or_hx_redirect(request)
+    auth = require_initialized_or_redirect(request)
     if not isinstance(auth, dict):
         return auth
 

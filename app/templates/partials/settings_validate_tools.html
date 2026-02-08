@@ -1,0 +1,79 @@
+<details class="mt-3">
+  <summary class="small">Проверка настроек (без сохранения)</summary>
+  <div class="row g-3 mt-2">
+    <div class="col-12">
+      <div class="d-flex flex-column flex-sm-row gap-2 align-items-start">
+        <div class="position-relative">
+          <button
+            type="button"
+            class="btn btn-outline-secondary"
+            hx-post="/settings/validate/ad"
+            hx-include="#settings-form"
+            hx-target="#validate-ad-result"
+            hx-swap="innerHTML"
+          >
+            Проверить AD bind
+          </button>
+          <div class="htmx-indicator position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center bg-white bg-opacity-75 rounded opacity-0 invisible">
+            <div class="spinner-border spinner-border-sm text-primary me-2" role="status"></div>
+            <span class="small">Проверка...</span>
+          </div>
+        </div>
+        <div id="validate-ad-result" class="flex-grow-1"></div>
+      </div>
+      <div class="form-text">Проверяет подключение к DC и bind учёткой (без загрузки групп).</div>
+    </div>
+
+    <div class="col-md-6">
+      <label class="form-label fw-semibold">Тестовый хост для Host query</label>
+      <input class="form-control" name="host_query_test_host" placeholder="PC-123 или 192.168.66.10">
+      <div class="form-text">Чтобы проверить учётку Host query, укажи один хост (hostname или IP).</div>
+    </div>
+    <div class="col-md-6">
+      <label class="form-label fw-semibold">&nbsp;</label>
+      <div class="d-flex flex-column flex-sm-row gap-2 align-items-start">
+        <div class="position-relative">
+          <button
+            type="button"
+            class="btn btn-outline-secondary"
+            hx-post="/settings/validate/host"
+            hx-include="#settings-form"
+            hx-target="#validate-host-result"
+            hx-swap="innerHTML"
+          >
+            Проверить Host query
+          </button>
+          <div class="htmx-indicator position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center bg-white bg-opacity-75 rounded opacity-0 invisible">
+            <div class="spinner-border spinner-border-sm text-primary me-2" role="status"></div>
+            <span class="small">Проверка...</span>
+          </div>
+        </div>
+        <div id="validate-host-result" class="flex-grow-1"></div>
+      </div>
+      <div class="form-text">Пробует WinRM/WMI/SMB по очереди и покажет результат.</div>
+    </div>
+
+    <div class="col-12">
+      <div class="d-flex flex-column flex-sm-row gap-2 align-items-start">
+        <div class="position-relative">
+          <button
+            type="button"
+            class="btn btn-outline-secondary"
+            hx-post="/settings/validate/net"
+            hx-include="#settings-form"
+            hx-target="#validate-net-result"
+            hx-swap="innerHTML"
+          >
+            Проверить Net scan CIDR
+          </button>
+          <div class="htmx-indicator position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center bg-white bg-opacity-75 rounded opacity-0 invisible">
+            <div class="spinner-border spinner-border-sm text-primary me-2" role="status"></div>
+            <span class="small">Проверка...</span>
+          </div>
+        </div>
+        <div id="validate-net-result" class="flex-grow-1"></div>
+      </div>
+      <div class="form-text">Проверяет корректность CIDR и защиту от случайно огромных сетей.</div>
+    </div>
+  </div>
+</details>

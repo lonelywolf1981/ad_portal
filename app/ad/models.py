@@ -17,9 +17,17 @@ class ADConfig:
     bind_password: str
     tls_validate: bool = False
     ca_pem: str = ""
+    dns_server: str = ""
 
     @property
     def host(self) -> str:
+        # Если задан DNS сервер, используем его для резолва
+        if self.dns_server:
+            from ..utils.net import resolve_hostname_with_dns
+            resolved_ip = resolve_hostname_with_dns(build_dc_fqdn(self.dc_short, self.domain), self.dns_server)
+            if resolved_ip:
+                return resolved_ip
+        # Если DNS сервер не задан или резолв не удался, используем обычное формирование FQDN
         return build_dc_fqdn(self.dc_short, self.domain)
 
     @property

@@ -42,6 +42,9 @@ class AppSettings(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)  # always 1
 
+    # Settings schema version (for lightweight, non-Alembic migrations)
+    schema_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
     auth_mode: Mapped[str] = mapped_column(String(16), default="local", nullable=False)  # local|ad
 
     ad_dc_short: Mapped[str] = mapped_column(String(64), default="", nullable=False)     # e.g. DC1
@@ -61,8 +64,11 @@ class AppSettings(Base):
     # Network scan settings (periodic user presence detection)
     net_scan_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     net_scan_cidrs: Mapped[str] = mapped_column(Text, default="", nullable=False)  # newline-separated CIDR list
+    net_scan_dns_server: Mapped[str] = mapped_column(String(255), default="", nullable=False)
     net_scan_interval_min: Mapped[int] = mapped_column(Integer, default=120, nullable=False)
     net_scan_concurrency: Mapped[int] = mapped_column(Integer, default=64, nullable=False)
+    # Per-method timeout used by background scan (WinRM/WMI/SMB). Separate from host_query_timeout_s.
+    net_scan_method_timeout_s: Mapped[int] = mapped_column(Integer, default=20, nullable=False)
     net_scan_probe_timeout_ms: Mapped[int] = mapped_column(Integer, default=350, nullable=False)
 
     net_scan_last_run_ts: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

@@ -1,5 +1,14 @@
 {% extends "base_app.html" %}
 {% block content %}
+  {% include "partials/net_scan_poll.html" %}
+
+{% if not net_scan_ready %}
+<div class="alert alert-info">
+  <strong>Проверьте чеклист:</strong> вкладка <strong>«Сопоставления»</strong> появится, когда вы
+  <strong>включите периодическое сканирование сети</strong> и зададите <strong>диапазоны CIDR</strong>.
+  <a href="?mode=init" class="alert-link">Открыть чеклист</a>
+</div>
+{% endif %}
 
 <div class="d-flex align-items-center justify-content-between mb-3">
   <h1 class="h5 m-0">Настройки</h1>
@@ -13,7 +22,7 @@
     <div class="card shadow-sm">
       <div class="card-body">
 
-        <form id="settings-form" method="post" action="/settings/save">
+        <form id="settings-form" method="post" action="/settings/save" hx-post="/settings/save" hx-target="#settings-save-result" hx-swap="innerHTML" hx-indicator="#settings-save-indicator">
 
           <h2 class="h6">1) Режим авторизации</h2>
           <div class="mb-3">
@@ -37,8 +46,8 @@
           <div class="row g-3">
             <div class="col-md-3">
               <label class="form-label fw-semibold">DC</label>
-              <input class="form-control" name="ad_dc_short" value="{{ st.ad_dc_short }}" placeholder="DC1" required>
-              <div class="form-text">Только имя, без домена</div>
+              <input class="form-control" name="ad_dc_short" value="{{ st.ad_dc_short }}" placeholder="DC1 или 192.168.1.10" required>
+              <div class="form-text">Имя или IP-адрес контроллера домена</div>
             </div>
 
             <div class="col-md-5">
@@ -86,6 +95,41 @@
               <label class="form-label fw-semibold">Bind password</label>
               <input class="form-control" name="ad_bind_password" type="password" placeholder="(не изменять — оставьте пустым)">
               <div class="form-text">Если оставить пустым — пароль не меняется.</div>
+            </div>
+          </div>
+
+          <div class="row g-3 mt-1">
+            <div class="col-md-4">
+              <label class="form-label fw-semibold d-block">TLS проверка</label>
+              <div class="form-check">
+                <input
+                  class="form-check-input"
+                  type="checkbox"
+                  id="ad_tls_validate"
+                  name="ad_tls_validate"
+                  {% if st.ad_tls_validate %}checked{% endif %}
+                >
+                <label class="form-check-label" for="ad_tls_validate">
+                  Проверять сертификат DC
+                </label>
+              </div>
+              <div class="form-text">
+                Если включено — требуется доверенный сертификат (системный trust store или CA ниже).
+              </div>
+            </div>
+
+            <div class="col-md-8">
+              <label class="form-label fw-semibold">CA сертификат (PEM)</label>
+              <textarea
+                class="form-control font-monospace"
+                id="ad_ca_pem"
+                name="ad_ca_pem"
+                rows="6"
+                placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"
+              >{{ st.ad_ca_pem or '' }}</textarea>
+              <div class="form-text">
+                Необязательно. Используется только если включена проверка сертификата.
+              </div>
             </div>
           </div>
 
@@ -157,6 +201,11 @@
                 <summary class="small">Дополнительно (необязательно)</summary>
                 <div class="row g-3 mt-2">
                   <div class="col-md-4">
+                    <label class="form-label fw-semibold">DNS сервер</label>
+                    <input class="form-control" name="net_scan_dns_server" value="{{ st.net_scan_dns_server or '' }}" placeholder="192.168.66.1">
+                    <div class="form-text">Если не указан, будет использован первый адрес из CIDR сетей.</div>
+                  </div>
+                  <div class="col-md-4">
                     <label class="form-label fw-semibold">Параллелизм</label>
                     <input class="form-control" name="net_scan_concurrency" type="number" min="4" max="256" value="{{ st.net_scan_concurrency or 64 }}">
                     <div class="form-text">Сколько хостов опрашивать одновременно.</div>
@@ -188,34 +237,74 @@
                 </button>
                 <div id="net-scan-run-result" class="flex-grow-1"></div>
               </div>
-              {% if st.net_scan_last_run_ts or st.net_scan_last_summary %}
-                <div class="small text-secondary mt-2">
-		  <div><span class="fw-semibold">Последний запуск:</span> {{ net_scan_last_run_ui }}</div>
-                  <div><span class="fw-semibold">Результат:</span> {{ st.net_scan_last_summary or '—' }}</div>
+              <div id="net-scan-status" class="small text-secondary mt-2">
+                <div>
+                  <span class="fw-semibold">Статус:</span>
+                  {% if net_scan_is_running %}
+                    <span class="badge text-bg-info">Выполняется…</span>
+                  {% else %}
+                    <span class="badge text-bg-secondary">Ожидание</span>
+                  {% endif %}
+                </div>
+                <div class="mt-1"><span class="fw-semibold">Последний запуск:</span> {{ net_scan_last_run_ui if net_scan_last_run_ui else "—" }}</div>
+                <div><span class="fw-semibold">Результат:</span> {{ st.net_scan_last_summary or "—" }}</div>
+              </div>
+</div>
+          </div>
+
+        {% include "partials/settings_validate_tools.html" %}
+
+          <div class="mt-3 d-flex flex-column flex-sm-row gap-2">
+            <div class="position-relative flex-grow-1">
+              <button
+                type="button"
+                class="btn btn-outline-primary w-100"
+                hx-post="/settings/ad/test"
+                hx-include="#settings-form"
+                hx-target="#ad-test-result"
+                hx-swap="innerHTML"
+              >
+                Проверить и загрузить группы
+              </button>
+              <div class="htmx-indicator position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center bg-white bg-opacity-75 rounded opacity-0 invisible">
+                <div class="spinner-border spinner-border-sm text-primary me-2" role="status"></div>
+                <span class="small">Проверка...</span>
+              </div>
+            </div>
+
+            <button type="submit" class="btn btn-primary">Сохранить</button>
+          </div>
+
+          <div class="mt-2">
+            <div id="settings-save-indicator" class="htmx-indicator small text-secondary">Сохранение...</div>
+            <div id="settings-save-result">
+              {% if err %}
+                <div class="alert alert-danger py-2 mb-0">
+                  <div>Настройки не сохранены</div>
+                  <pre class="small mt-1 mb-0"><code>{{ err }}</code></pre>
                 </div>
               {% endif %}
             </div>
           </div>
 
-          <div class="mt-3 d-flex flex-column flex-sm-row gap-2">
-            <button
-              type="button"
-              class="btn btn-outline-primary flex-grow-1"
-              hx-post="/settings/ad/test"
-              hx-include="#settings-form"
-              hx-target="#ad-test-result"
-              hx-swap="innerHTML"
-            >
-              Проверить и загрузить группы
-            </button>
-
-            <button type="submit" class="btn btn-primary">Сохранить</button>
-          </div>
-
           <div id="ad-test-result" class="mt-3">
             {% if st.last_ad_test_ts %}
               <div class="alert {% if st.last_ad_test_ok %}alert-success{% else %}alert-danger{% endif %} py-2 mb-0">
-                {{ st.last_ad_test_message }}
+                <div class="d-flex justify-content-between align-items-start">
+                  <div>{{ st.last_ad_test_message }}</div>
+                  {% if not st.last_ad_test_ok %}
+                    <button class="btn btn-link btn-sm p-0 ms-2" type="button" data-bs-toggle="collapse" data-bs-target="#ad-error-details" aria-expanded="false" aria-controls="ad-error-details">
+                      Подробнее
+                    </button>
+                  {% endif %}
+                </div>
+                {% if st.last_ad_test_message and not st.last_ad_test_ok %}
+                  <div class="collapse mt-2" id="ad-error-details">
+                    <div class="card card-body p-2 small bg-light">
+                      {{ st.last_ad_test_message }}
+                    </div>
+                  </div>
+                {% endif %}
               </div>
             {% endif %}
           </div>
@@ -243,11 +332,24 @@
         </ul>
       </div>
     </div>
+
+    {% include "partials/settings_export_import.html" %}
   </div>
 </div>
 
 <script>
 (function(){
+  function toggleAdCaPem(){
+    const cb = document.getElementById("ad_tls_validate");
+    const ta = document.getElementById("ad_ca_pem");
+    if(!cb || !ta) return;
+    const enabled = !!cb.checked;
+    // Use readonly instead of disabled so the value is still submitted and
+    // we don't accidentally wipe an already stored CA when saving.
+    ta.readOnly = !enabled;
+    // Minor visual cue when disabled.
+    ta.classList.toggle("opacity-50", !enabled);
+  }
   function updateBadges(selectId, badgesId){
     const sel = document.getElementById(selectId);
     const box = document.getElementById(badgesId);
@@ -264,9 +366,13 @@
     if(e.target && e.target.id === "allowed_settings_groups"){
       updateBadges("allowed_settings_groups", "badges_settings");
     }
+    if(e.target && e.target.id === "ad_tls_validate"){
+      toggleAdCaPem();
+    }
   });
   updateBadges("allowed_app_groups", "badges_app");
   updateBadges("allowed_settings_groups", "badges_settings");
+  toggleAdCaPem();
 })();
 </script>
 

@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Optional
 import ssl
+import hashlib
+import os
 
 from ldap3 import (
     Server,
@@ -21,12 +23,71 @@ from .utils import escape_ldap_filter_value, filetime_to_dt_str
 
 
 class ADClient:
+    @staticmethod
+    def _normalize_pem(pem: str) -> str:
+        """Normalize PEM text (strip outer whitespace and normalize line endings)."""
+        data = (pem or "").strip()
+        # Normalize Windows newlines to \n to avoid hash mismatches.
+        data = data.replace("\r\n", "\n").replace("\r", "\n")
+        return data
+
+    @staticmethod
+    def _ensure_ca_file(pem: str) -> str:
+        """Materialize CA PEM into a stable file path.
+
+        ldap3.Tls historically supports ca_certs_file (works across versions).
+        We store PEM under /tmp with a content hash, so multiple workers can reuse it.
+        """
+
+        data = ADClient._normalize_pem(pem)
+        if not data:
+            return ""
+
+        # Minimal sanity check: avoid writing arbitrary text to /tmp and later confusing TLS errors.
+        if "-----BEGIN CERTIFICATE-----" not in data or "-----END CERTIFICATE-----" not in data:
+            raise ValueError("CA PEM не похож на сертификат (ожидается блок BEGIN/END CERTIFICATE)")
+
+        h = hashlib.sha256(data.encode("utf-8")).hexdigest()[:16]
+        path = f"/tmp/ad_portal_ca_{h}.pem"
+
+        try:
+            # Write only if missing or different.
+            if os.path.exists(path):
+                try:
+                    with open(path, "r", encoding="utf-8") as f:
+                        if f.read().strip() == data:
+                            return path
+                except Exception:
+                    pass
+
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(data)
+                if not data.endswith("\n"):
+                    f.write("\n")
+            try:
+                os.chmod(path, 0o600)
+            except Exception:
+                pass
+        except Exception:
+            # If filesystem is read-only for some reason, fall back to system trust store.
+            return ""
+
+        return path
+
     def __init__(self, cfg: ADConfig) -> None:
         self.cfg = cfg
-        if cfg.tls_validate:
-            tls = Tls(validate=ssl.CERT_REQUIRED)
-        else:
-            tls = Tls(validate=ssl.CERT_NONE)
+
+        tls_kwargs: dict[str, Any] = {
+            "validate": ssl.CERT_REQUIRED if cfg.tls_validate else ssl.CERT_NONE,
+        }
+        # Apply custom CA only when verification is enabled.
+        ca_pem = self._normalize_pem(cfg.ca_pem or "")
+        if cfg.tls_validate and ca_pem:
+            ca_file = self._ensure_ca_file(ca_pem)
+            if ca_file:
+                tls_kwargs["ca_certs_file"] = ca_file
+
+        tls = Tls(**tls_kwargs)
 
         self.server = Server(
             host=cfg.host,
@@ -51,7 +112,130 @@ class ADClient:
             conn.unbind()
             return ok, res
         except LDAPException as e:
-            return False, {"error": str(e)}
+            return False, {"error": str(e), "description": str(e), "message": str(e)}
+
+    def test_connection(self, timeout_s: float = 3.0) -> bool:
+        """Lightweight connectivity check.
+
+        Used by settings validation/UI. Performs:
+        - TCP connect (ldap3 open)
+        - optional StartTLS
+        - bind with service credentials
+        """
+
+        # Use a dedicated Server instance with connect_timeout to avoid hanging.
+        try:
+            tls = self.server.tls
+            srv = Server(
+                host=self.cfg.host,
+                port=self.cfg.port,
+                use_ssl=self.cfg.use_ssl,
+                get_info=ALL,
+                tls=tls,
+                connect_timeout=float(timeout_s),
+            )
+            conn = Connection(srv, user=self.cfg.bind_principal, password=self.cfg.bind_password, auto_bind=False)
+            conn.open()
+            if self.cfg.starttls:
+                conn.start_tls()
+            ok = bool(conn.bind())
+            try:
+                conn.unbind()
+            except Exception:
+                pass
+            return ok
+        except LDAPException:
+            return False
+
+    def test_connection_detailed(self, timeout_s: float = 3.0) -> tuple[bool, str]:
+        """Detailed connectivity check with specific error information.
+
+        Returns: (success, details_message)
+        """
+        try:
+            # Проверяем резолвинг хоста
+            import socket
+            try:
+                resolved_ip = socket.gethostbyname(self.cfg.host)
+            except socket.gaierror as e:
+                # Если не удалось разрешить имя, проверим, используется ли DNS сервер
+                if self.cfg.dns_server:
+                    from ..utils.net import resolve_hostname_with_dns
+                    resolved_ip = resolve_hostname_with_dns(self.cfg.host, self.cfg.dns_server)
+                    if not resolved_ip:
+                        return False, f"Не удалось разрешить имя хоста '{self.cfg.host}' ни через системный резолвер, ни через указанный DNS-сервер ({self.cfg.dns_server}). Проверьте настройки DNS."
+                    # Если резолвинг через указанный DNS-сервер успешен, используем полученный IP
+                    target_host = resolved_ip
+                else:
+                    return False, f"Не удалось разрешить имя хоста '{self.cfg.host}'. Проверьте имя хоста или настройте DNS-сервер в настройках."
+            else:
+                # Если системный резолвинг прошел успешно, используем полученный IP
+                target_host = resolved_ip
+
+            # Проверяем доступность хоста
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.settimeout(float(timeout_s))
+            result = s.connect_ex((target_host, self.cfg.port))
+            s.close()
+            
+            if result != 0:
+                return False, f"Не удается подключиться к {target_host}:{self.cfg.port}. Проверьте доступность хоста и порта."
+
+            tls = self.server.tls
+            srv = Server(
+                host=target_host,  # Используем резолвнутый IP
+                port=self.cfg.port,
+                use_ssl=self.cfg.use_ssl,
+                get_info=ALL,
+                tls=tls,
+                connect_timeout=float(timeout_s),
+            )
+            conn = Connection(srv, user=self.cfg.bind_principal, password=self.cfg.bind_password, auto_bind=False)
+            conn.open()
+            
+            if self.cfg.starttls:
+                try:
+                    conn.start_tls()
+                except Exception as e:
+                    return False, f"Ошибка при установке StartTLS: {str(e)}"
+                    
+            bind_result = conn.bind()
+            result_dict = dict(conn.result or {})
+            
+            if not bind_result:
+                error_msg = result_dict.get('message', 'Неизвестная ошибка')
+                desc = result_dict.get('description', '')
+                
+                # Попробуем расшифровать наиболее распространенные ошибки
+                if 'invalidCredentials' in error_msg or 'invalidCredentials' in desc:
+                    error_msg = 'Неверные учетные данные (пользователь или пароль)'
+                elif 'strongerAuthRequired' in error_msg or 'strongerAuthRequired' in desc:
+                    error_msg = 'Требуется более безопасный метод аутентификации'
+                elif 'connect_error' in error_msg:
+                    error_msg = 'Ошибка подключения к серверу'
+                elif 'SSL handshake failed' in error_msg:
+                    error_msg = 'Ошибка SSL-соединения. Проверьте настройки TLS/SSL и сертификаты.'
+                
+                details = f"Ошибка при попытке bind: {error_msg}"
+                if desc and desc != result_dict.get('message', ''):
+                    details += f" ({desc})"
+                    
+                try:
+                    conn.unbind()
+                except Exception:
+                    pass
+                return False, details
+            
+            try:
+                conn.unbind()
+            except Exception:
+                pass
+                
+            return True, "Подключение к AD успешно установлено"
+        except LDAPException as e:
+            return False, f"LDAP ошибка: {str(e)}"
+        except Exception as e:
+            return False, f"Общая ошибка: {str(e)}"
 
     def find_user_by_login(self, login: str) -> Optional[ADUser]:
         login = (login or "").strip()
@@ -333,3 +517,77 @@ class ADClient:
             except Exception:
                 pass
             return False, f"LDAP ошибка: {e}", {}
+
+    def count_users(self, *, enabled_only: bool = False, page_size: int = 500) -> tuple[bool, str, int]:
+        """Count AD users under BaseDN.
+
+        We intentionally keep this lightweight and defensive:
+        - paged search (to avoid server-side size limits)
+        - no heavy attribute fetching
+
+        Returns: (ok, message, count)
+        """
+
+        base = self.cfg.base_dn
+        if not base:
+            return False, "BaseDN пустой (проверьте домен в настройках).", 0
+
+        # Filter:
+        # - only user objects (exclude computers)
+        # - optionally exclude disabled accounts via userAccountControl bit 2
+        flt_parts = [
+            "(objectCategory=person)",
+            "(objectClass=user)",
+            "(!(objectClass=computer))",
+        ]
+        if enabled_only:
+            # LDAP_MATCHING_RULE_BIT_AND (1.2.840.113556.1.4.803)
+            # userAccountControl:...:=2 => DISABLED
+            flt_parts.append("(!(userAccountControl:1.2.840.113556.1.4.803:=2))")
+
+        flt = "(&" + "".join(flt_parts) + ")"
+
+        conn: Connection | None = None
+        try:
+            conn = self._conn(self.cfg.bind_principal, self.cfg.bind_password)
+            if not conn.bind():
+                res = dict(conn.result or {})
+                conn.unbind()
+                return False, f"Ошибка bind: {res}", 0
+
+            # Use ldap3 paged search controls.
+            # We request only DN (no attributes) to keep traffic minimal.
+            count = 0
+            cookie = None
+            while True:
+                ok = conn.search(
+                    search_base=base,
+                    search_filter=flt,
+                    search_scope=SUBTREE,
+                    attributes=[],
+                    paged_size=int(page_size),
+                    paged_cookie=cookie,
+                )
+                if not ok:
+                    res = dict(conn.result or {})
+                    conn.unbind()
+                    return False, f"Поиск не выполнен: {res}", 0
+
+                count += len(conn.entries)
+                controls = conn.result.get("controls", {}) if isinstance(conn.result, dict) else {}
+                paged = controls.get("1.2.840.113556.1.4.319", {})
+                value = paged.get("value", {}) if isinstance(paged, dict) else {}
+                cookie = value.get("cookie")
+                if not cookie:
+                    break
+
+            conn.unbind()
+            return True, "OK", int(count)
+
+        except LDAPException as e:
+            try:
+                if conn:
+                    conn.unbind()
+            except Exception:
+                pass
+            return False, f"LDAP ошибка: {e}", 0

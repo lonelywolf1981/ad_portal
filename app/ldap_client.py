@@ -1,11 +1,21 @@
-"""Backward-compatible shim.
-
-The LDAP/AD client was moved to :mod:`app.ad` (Stage 2 refactor).
-Keep this module to avoid touching all import sites at once.
+"""
+DEPRECATED: Этот файл является тонкой оберткой для обратной совместимости.
+Модуль ldap_client был реорганизован в пакет app/ad/ в целях улучшения архитектуры.
+Пожалуйста, обновите свои импорты с '..ldap_client import ...' на '..ad import ...'.
+Этот файл будет удален в следующем релизе.
 """
 
-from __future__ import annotations
+import warnings
 
+# Импортируем из нового местоположения
 from .ad import ADClient, ADConfig, ADUser
+
+# Выдаем предупреждение о депрекации
+warnings.warn(
+    "Модуль ldap_client.py устарел. Пожалуйста, используйте импорты из .ad вместо .ldap_client. "
+    "Файл ldap_client.py будет удален в будущем релизе.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 __all__ = ["ADClient", "ADConfig", "ADUser"]

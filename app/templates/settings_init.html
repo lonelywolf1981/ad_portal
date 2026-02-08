@@ -1,0 +1,106 @@
+{% extends "base_app.html" %}
+{% block content %}
+
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <h1 class="h5 m-0">Инициализация приложения</h1>
+</div>
+
+<div class="row g-4">
+  <div class="col-12 col-lg-8">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h2 class="h6 mb-3">Чеклист</h2>
+
+        <div class="small text-secondary mb-2">Обязательные настройки для базовой работы</div>
+        <ul class="list-group list-group-flush mb-3">
+          <li class="list-group-item d-flex justify-content-between align-items-center">
+            <span>Режим аутентификации (LOCAL или AD)</span>
+            {% if mandatory.has_local_or_ad_admin %}
+              <span class="badge text-bg-success">Готово</span>
+            {% else %}
+              <span class="badge text-bg-warning">Требуется</span>
+            {% endif %}
+          </li>
+
+          <li class="list-group-item d-flex justify-content-between align-items-center">
+            <span>Настройки подключения к AD (если выбран режим AD)</span>
+            {% if mandatory.ad_configured %}
+              <span class="badge text-bg-success">Готово</span>
+            {% else %}
+              <span class="badge text-bg-warning">Требуется</span>
+            {% endif %}
+          </li>
+
+          <li class="list-group-item d-flex justify-content-between align-items-center">
+            <span>Учетные данные для опроса хостов</span>
+            {% if mandatory.host_query_creds %}
+              <span class="badge text-bg-success">Готово</span>
+            {% else %}
+              <span class="badge text-bg-warning">Требуется</span>
+            {% endif %}
+          </li>
+        </ul>
+
+        <div class="small text-secondary mb-2">Для появления вкладки «Сопоставления»</div>
+        <ul class="list-group list-group-flush">
+          <li class="list-group-item d-flex justify-content-between align-items-center">
+            <span>Периодическое сканирование сети (net-scan)</span>
+            {% if mapping.net_scan_enabled %}
+              <span class="badge text-bg-success">Включено</span>
+            {% else %}
+              <span class="badge text-bg-warning">Выключено</span>
+            {% endif %}
+          </li>
+          <li class="list-group-item d-flex justify-content-between align-items-center">
+            <span>Диапазоны CIDR для сканирования</span>
+            {% if mapping.net_scan_ranges %}
+              <span class="badge text-bg-success">Заданы</span>
+            {% else %}
+              <span class="badge text-bg-warning">Не заданы</span>
+            {% endif %}
+          </li>
+        </ul>
+        
+        <div class="mt-4">
+          {% if all_mandatory_passed %}
+            <div class="alert alert-success">
+              <strong>Базовая инициализация выполнена.</strong> Поиск пользователей и опрос хостов доступны.
+            </div>
+          {% else %}
+            <div class="alert alert-warning">
+              <strong>Не все обязательные пункты выполнены.</strong> Заполните настройки выше.
+            </div>
+          {% endif %}
+
+          {% if net_scan_ready %}
+            <div class="alert alert-success">
+              Вкладка <strong>«Сопоставления»</strong> активна (net-scan включён, диапазоны заданы).
+            </div>
+          {% else %}
+            <div class="alert alert-info">
+              Чтобы появилась вкладка <strong>«Сопоставления»</strong>, включите периодическое сканирование и задайте CIDR-диапазоны.
+            </div>
+          {% endif %}
+
+          <a href="/settings" class="btn btn-primary">Открыть настройки</a>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <div class="col-12 col-lg-4">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h2 class="h6">Инструкция по инициализации</h2>
+        <ol class="small">
+          <li>Выберите режим аутентификации (LOCAL или AD)</li>
+          <li>Если выбран режим AD, укажите настройки подключения к контроллеру домена</li>
+          <li>Укажите учетные данные для опроса хостов</li>
+          <li>Настройте диапазоны IP-адресов для сетевого сканирования</li>
+        </ol>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

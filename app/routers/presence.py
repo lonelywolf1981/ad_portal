@@ -6,7 +6,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from openpyxl import Workbook
 
-from ..deps import require_session_or_hx_redirect
+from ..deps import require_session_or_hx_redirect, require_initialized_or_redirect
 from ..mappings import cleanup_host_user_matches, search_host_user_matches
 from ..presence import fmt_dt_ru
 from ..repo import db_session
@@ -15,12 +15,44 @@ from ..webui import templates
 
 router = APIRouter()
 
+def _require_presence_enabled() -> bool:
+    """Presence/mapping features depend on periodic net-scan.
+
+    If net-scan is disabled, show a friendly message instead of empty/cryptic errors.
+    """
+    from ..repo import db_session, get_or_create_settings
+
+    try:
+        with db_session() as db:
+            st = get_or_create_settings(db)
+            enabled = bool(getattr(st, "net_scan_enabled", False))
+            cidrs_txt = (getattr(st, "net_scan_cidrs", "") or "").strip()
+            return bool(enabled and cidrs_txt)
+    except Exception:
+        # If settings are not available, be conservative and disable presence.
+        return False
+
+
+def _presence_disabled_response(request: Request) -> HTMLResponse:
+    return HTMLResponse(
+        content="""<div class='alert alert-secondary mb-0'>
+        Вкладка «Сопоставления» недоступна, потому что <strong>периодическое сетевое сканирование</strong> не настроено
+        (выключено или не заданы диапазоны CIDR).
+        Откройте <a href='/settings?mode=init'>чеклист</a> и выполните пункты для вкладки «Сопоставления».
+        </div>""",
+        status_code=200,
+    )
+
+
 
 @router.get("/presence/search", response_class=HTMLResponse)
 def presence_search(request: Request, q: str = "", sort: str = "when", dir: str = "desc"):
-    auth = require_session_or_hx_redirect(request)
+    auth = require_initialized_or_redirect(request)
     if not isinstance(auth, dict):
         return auth
+
+    if not _require_presence_enabled():
+        return _presence_disabled_response(request)
 
     q = (q or "").strip()
     sort = (sort or "when").strip().lower()
@@ -75,7 +107,7 @@ def presence_search(request: Request, q: str = "", sort: str = "when", dir: str 
 
 @router.get("/presence/export.xlsx")
 def presence_export_xlsx(request: Request, q: str = "", sort: str = "when", dir: str = "desc"):
-    auth = require_session_or_hx_redirect(request)
+    auth = require_initialized_or_redirect(request)
     if not isinstance(auth, dict):
         # If session is missing, always redirect for a download endpoint.
         return RedirectResponse(url="/login", status_code=303)

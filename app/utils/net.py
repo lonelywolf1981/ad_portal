@@ -73,3 +73,41 @@ def ip_key(ip: str) -> tuple:
         return (0, int(ipaddress.IPv4Address(s)))
     except Exception:
         return (1, s.casefold())
+
+
+def resolve_hostname_with_dns(hostname: str, dns_server: str) -> str | None:
+    """Resolve hostname using a specific DNS server."""
+    if not dns_server:
+        return None
+    
+    try:
+        import dns.resolver
+        import dns.exception
+        
+        resolver = dns.resolver.Resolver(configure=False)
+        resolver.nameservers = [dns_server]
+        
+        # Устанавливаем таймаут для запроса
+        resolver.timeout = 5.0
+        resolver.lifetime = 5.0
+        
+        answers = resolver.resolve(hostname, 'A')
+        if answers:
+            return str(answers[0])
+    except dns.resolver.NXDOMAIN:
+        # Имя хоста не найдено в DNS
+        print(f"DNS Error: Hostname '{hostname}' не найден в DNS-сервере {dns_server}")
+    except dns.resolver.NoAnswer:
+        # DNS-сервер не вернул ответа
+        print(f"DNS Error: DNS-сервер {dns_server} не вернул A-запись для '{hostname}'")
+    except dns.resolver.NoNameservers:
+        # Все DNS-сервера вернули ошибку
+        print(f"DNS Error: Все DNS-сервера ({dns_server}) вернули ошибку")
+    except dns.exception.Timeout:
+        # Таймаут запроса
+        print(f"DNS Error: Таймаут запроса к DNS-серверу {dns_server} для '{hostname}'")
+    except Exception as e:
+        # Любая другая ошибка
+        print(f"DNS Error: Неизвестная ошибка при резолве '{hostname}' через DNS-сервер {dns_server}: {str(e)}")
+    
+    return None

@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Iterable
 
-from .host_logon import find_logged_on_users
+from .host_query import find_logged_on_users
 from .presence import normalize_login
 from .utils.numbers import clamp_int
 from .utils.tcp_probe import tcp_probe_any
@@ -160,8 +160,21 @@ def short_hostname(name: str) -> str:
     return s.split(".", 1)[0]
 
 
-@dataclass
-class ScanResult:
+from typing import NamedTuple
+
+class ScanResult(NamedTuple):
+    """Результат сканирования сети.
+    
+    Attributes:
+        total_ips: Общее количество IP-адресов для сканирования
+        probed: Количество IP-адресов, до которых удалось достучаться
+        alive: Количество живых хостов (откликнувшихся на probe)
+        queried: Количество хостов, с которых удалось получить данные
+        users_found: Количество найденных пользователей
+        errors: Количество ошибок во время сканирования
+        presence: Словарь соответствий пользователь -> {host, ip, method, ts}
+        matches: Список соответствий {host, ip, login, method, ts}
+    """
     total_ips: int
     probed: int
     alive: int
@@ -170,6 +183,11 @@ class ScanResult:
     errors: int
     presence: dict[str, dict]  # login_lower -> {host, ip, method, ts} (last known location per user)
     matches: list[dict]        # [{host, ip, login, method, ts}] (per host-user pair)
+    
+    def __repr__(self):
+        return (f"ScanResult(total_ips={self.total_ips}, probed={self.probed}, "
+                f"alive={self.alive}, queried={self.queried}, users_found={self.users_found}, "
+                f"errors={self.errors})")
 
 
 # Backward-compatible alias (some versions of tasks.py import this)
@@ -239,9 +257,16 @@ def scan_presence(
         except Exception:
             return ip, [], "", "", True
 
+    # IMPORTANT:
+    # Do NOT use executor.map here.
+    # map() yields results in *input order* (head-of-line blocking): a single slow/hung host
+    # at the start of a subnet can make the whole scan look "stuck" for a long time.
+    # Using as_completed() allows fast hosts to be processed immediately and the scan to
+    # make visible progress even with a few problematic IPs.
     with concurrent.futures.ThreadPoolExecutor(max_workers=conc) as ex:
-        # executor.map is more lightweight than managing futures/as_completed for a large host list.
-        for ip2, users, method, hostname, is_err in ex.map(work_safe, ips):
+        futs: list[concurrent.futures.Future] = [ex.submit(work_safe, ip) for ip in ips]
+        for fut in concurrent.futures.as_completed(futs):
+            ip2, users, method, hostname, is_err = fut.result()
             probed += 1
             if is_err:
                 errors += 1
