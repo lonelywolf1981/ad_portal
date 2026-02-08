@@ -3,12 +3,16 @@ from __future__ import annotations
 import ipaddress
 import json
 import inspect
+import re
+from datetime import datetime, timedelta
 from pydantic import ValidationError
 
 from types import SimpleNamespace
 
 from fastapi import APIRouter, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+
+from sqlalchemy import distinct, func, select
 
 from ..ad_utils import split_group_dns
 from ..deps import require_session_or_hx_redirect
@@ -26,6 +30,8 @@ from ..services.settings import (
 )
 from ..timezone_utils import format_ru_local
 from ..webui import htmx_alert, templates, ui_result
+
+from ..models import HostUserMap, UserPresence
 
 from ..ad.client import ADClient
 from ..ad.models import ADConfig
@@ -370,8 +376,24 @@ def settings_page(request: Request, saved: int = 0, mode: str = ""):
         net_scan_last_run_ui = "—"
         net_scan_last_token = ""
         net_scan_is_running = False
+        online_users_last_scan: int | None = None
+        logged_users_found_last_scan: int | None = None
         try:
             dt = getattr(st, "net_scan_last_run_ts", None)
+            # Defensive: depending on SQLite driver / legacy schema, DateTime columns may come back as strings.
+            # We need a real datetime for window computations.
+            if dt and not isinstance(dt, datetime):
+                try:
+                    dt = datetime.fromisoformat(str(dt))
+                except Exception:
+                    # Try a common SQLite format: "YYYY-MM-DD HH:MM:SS[.ffffff]"
+                    try:
+                        dt = datetime.strptime(str(dt), "%Y-%m-%d %H:%M:%S")
+                    except Exception:
+                        try:
+                            dt = datetime.strptime(str(dt), "%Y-%m-%d %H:%M:%S.%f")
+                        except Exception:
+                            dt = None
             if dt:
                 net_scan_last_run_ui = format_ru_local(dt) or "—"
                 try:
@@ -380,6 +402,40 @@ def settings_page(request: Request, saved: int = 0, mode: str = ""):
                     net_scan_last_token = str(dt)
             # Authoritative "running" marker is net_scan_lock_ts (set/cleared by background task).
             net_scan_is_running = bool(getattr(st, "net_scan_lock_ts", None))
+
+            # --- Stats based on the *last scan window* ---
+            # Important: st.net_scan_last_run_ts is the scan *end* time.
+            # host_user_map/user_presence rows may have last_seen_ts a bit earlier (inside the scan),
+            # so filtering by >= end_time would incorrectly yield 0.
+            if dt:
+                summary = (getattr(st, "net_scan_last_summary", "") or "").strip()
+                dur_s: int | None = None
+                m = re.search(r"Длительность:\s*(\d+)\s*сек", summary)
+                if m:
+                    try:
+                        dur_s = int(m.group(1))
+                    except Exception:
+                        dur_s = None
+
+                # Fallback window: take 10 minutes if duration is unknown.
+                window_start = dt - timedelta(seconds=dur_s) if dur_s else (dt - timedelta(minutes=10))
+
+                online_users_last_scan = int(
+                    db.scalar(
+                        select(func.count())
+                        .select_from(UserPresence)
+                        .where(UserPresence.last_seen_ts >= window_start)
+                    )
+                    or 0
+                )
+
+                logged_users_found_last_scan = int(
+                    db.scalar(
+                        select(func.count(distinct(HostUserMap.user_login)))
+                        .where(HostUserMap.last_seen_ts >= window_start)
+                    )
+                    or 0
+                )
         except Exception:
             pass
 
@@ -412,6 +468,8 @@ def settings_page(request: Request, saved: int = 0, mode: str = ""):
                 "net_scan_last_run_ui": net_scan_last_run_ui,
                 "net_scan_last_token": net_scan_last_token,
                 "net_scan_is_running": net_scan_is_running,
+                "online_users_last_scan": online_users_last_scan,
+                "logged_users_found_last_scan": logged_users_found_last_scan,
             },
         )
 

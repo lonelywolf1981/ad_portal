@@ -517,3 +517,77 @@ class ADClient:
             except Exception:
                 pass
             return False, f"LDAP ошибка: {e}", {}
+
+    def count_users(self, *, enabled_only: bool = False, page_size: int = 500) -> tuple[bool, str, int]:
+        """Count AD users under BaseDN.
+
+        We intentionally keep this lightweight and defensive:
+        - paged search (to avoid server-side size limits)
+        - no heavy attribute fetching
+
+        Returns: (ok, message, count)
+        """
+
+        base = self.cfg.base_dn
+        if not base:
+            return False, "BaseDN пустой (проверьте домен в настройках).", 0
+
+        # Filter:
+        # - only user objects (exclude computers)
+        # - optionally exclude disabled accounts via userAccountControl bit 2
+        flt_parts = [
+            "(objectCategory=person)",
+            "(objectClass=user)",
+            "(!(objectClass=computer))",
+        ]
+        if enabled_only:
+            # LDAP_MATCHING_RULE_BIT_AND (1.2.840.113556.1.4.803)
+            # userAccountControl:...:=2 => DISABLED
+            flt_parts.append("(!(userAccountControl:1.2.840.113556.1.4.803:=2))")
+
+        flt = "(&" + "".join(flt_parts) + ")"
+
+        conn: Connection | None = None
+        try:
+            conn = self._conn(self.cfg.bind_principal, self.cfg.bind_password)
+            if not conn.bind():
+                res = dict(conn.result or {})
+                conn.unbind()
+                return False, f"Ошибка bind: {res}", 0
+
+            # Use ldap3 paged search controls.
+            # We request only DN (no attributes) to keep traffic minimal.
+            count = 0
+            cookie = None
+            while True:
+                ok = conn.search(
+                    search_base=base,
+                    search_filter=flt,
+                    search_scope=SUBTREE,
+                    attributes=[],
+                    paged_size=int(page_size),
+                    paged_cookie=cookie,
+                )
+                if not ok:
+                    res = dict(conn.result or {})
+                    conn.unbind()
+                    return False, f"Поиск не выполнен: {res}", 0
+
+                count += len(conn.entries)
+                controls = conn.result.get("controls", {}) if isinstance(conn.result, dict) else {}
+                paged = controls.get("1.2.840.113556.1.4.319", {})
+                value = paged.get("value", {}) if isinstance(paged, dict) else {}
+                cookie = value.get("cookie")
+                if not cookie:
+                    break
+
+            conn.unbind()
+            return True, "OK", int(count)
+
+        except LDAPException as e:
+            try:
+                if conn:
+                    conn.unbind()
+            except Exception:
+                pass
+            return False, f"LDAP ошибка: {e}", 0

@@ -19,10 +19,29 @@
       </div>
     </div>
 
-    <div class="mt-2 pt-2 border-top small text-secondary">
-      <div class="mb-1">Статус: {% if net_scan_is_running %}<span class="badge text-bg-info">Выполняется…</span>{% else %}<span class="badge text-bg-secondary">Ожидание</span>{% endif %}</div>
-      <div>Последний запуск: <strong>{{ net_scan_last_run if net_scan_last_run else "—" }}</strong></div>
-      <div>Результат: {% if net_scan_last_summary %}{{ net_scan_last_summary }}{% else %}—{% endif %}</div>
+    <div class="mt-2 pt-2 border-top text-secondary">
+      <div class="mb-2">
+        <div class="fw-semibold text-body small">Статистика</div>
+
+        <div class="d-flex flex-wrap align-items-center justify-content-between w-100 mt-1 fs-5">
+          <div class="me-3">
+            Пользователей AD:
+            <span class="fw-bold text-info">{{ ad_users_total if ad_users_total is not none else "—" }}</span>
+          </div>
+          <div class="me-3">
+            Активных (enabled):
+            <span class="fw-bold text-info">{{ ad_users_enabled if ad_users_enabled is not none else "—" }}</span>
+          </div>
+          <div class="">
+            Онлайн (по последнему скану):
+            <span class="fw-bold text-info">{{ online_users_last_scan if online_users_last_scan is not none else "—" }}</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="mb-1 small">Статус: {% if net_scan_is_running %}<span class="badge text-bg-info">Выполняется…</span>{% else %}<span class="badge text-bg-secondary">Ожидание</span>{% endif %}</div>
+      <div class="small">Последний запуск: <strong>{{ net_scan_last_run if net_scan_last_run else "—" }}</strong></div>
+      <div class="small">Результат: {% if net_scan_last_summary %}{{ net_scan_last_summary }}{% else %}—{% endif %}</div>
     </div>
   </div>
 </div>
