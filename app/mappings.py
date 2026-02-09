@@ -117,13 +117,13 @@ def search_host_user_matches(db: Session, q: str = "", limit: int = 500) -> list
     stmt = select(HostUserMap).order_by(HostUserMap.last_seen_ts.desc())
 
     if q:
-        ql = q.lower()
+        ql = q.lower().replace("%", r"\%").replace("_", r"\_")
         pat = f"%{ql}%"
         stmt = stmt.where(
             or_(
-                func.lower(HostUserMap.host).like(pat),
-                func.lower(HostUserMap.ip).like(pat),
-                func.lower(HostUserMap.user_login).like(pat),
+                func.lower(HostUserMap.host).like(pat, escape="\\"),
+                func.lower(HostUserMap.ip).like(pat, escape="\\"),
+                func.lower(HostUserMap.user_login).like(pat, escape="\\"),
             )
         )
 

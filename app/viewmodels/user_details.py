@@ -7,6 +7,7 @@ from ..utils.datetime_fmt import fmt_dt_human
 # Оставляем только поля, которые нужны в «Подробнее»
 DETAIL_LABELS: dict[str, str] = {
     "department": "Отдел",
+    "ipPhone": "IP-телефон",
     "memberOf": "Группы",
     "whenCreated": "Создан",
     "whenChanged": "Изменён",
@@ -20,6 +21,7 @@ DETAIL_LABELS: dict[str, str] = {
 def build_detail_items(details: dict) -> list[dict]:
     order = [
         "department",
+        "ipPhone",
         "memberOf",
         "whenCreated",
         "whenChanged",

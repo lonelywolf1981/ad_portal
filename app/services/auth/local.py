@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from ...crypto import decrypt_str
 from ...models import LocalUser
 from ...security import verify_password
 from .backend import AuthResult

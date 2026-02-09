@@ -7,7 +7,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from openpyxl import Workbook
 
 from ..deps import require_session_or_hx_redirect, require_initialized_or_redirect
-from ..mappings import cleanup_host_user_matches, search_host_user_matches
+from ..mappings import search_host_user_matches
 from ..presence import fmt_dt_ru
 from ..repo import db_session
 from ..utils.net import ip_key, ip_subnet_key, natural_key, short_hostname, subnet_badge_class
@@ -64,7 +64,6 @@ def presence_search(request: Request, q: str = "", sort: str = "when", dir: str 
     lim = 200 if not q else 500
 
     with db_session() as db:
-        cleanup_host_user_matches(db, retention_days=31)
         rows = search_host_user_matches(db, q=q, limit=lim)
 
     reverse = (dir == "desc")
@@ -122,7 +121,6 @@ def presence_export_xlsx(request: Request, q: str = "", sort: str = "when", dir:
     lim = 200 if not q else 500
 
     with db_session() as db:
-        cleanup_host_user_matches(db, retention_days=31)
         rows = search_host_user_matches(db, q=q, limit=lim)
 
     reverse = (dir == "desc")

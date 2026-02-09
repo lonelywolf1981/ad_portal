@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List
 
 from ..ad_utils import domain_to_base_dn, build_dc_fqdn
@@ -18,17 +18,22 @@ class ADConfig:
     tls_validate: bool = False
     ca_pem: str = ""
     dns_server: str = ""
+    _resolved_host: str = field(default="", init=False, repr=False)
 
     @property
     def host(self) -> str:
+        if self._resolved_host:
+            return self._resolved_host
         # Если задан DNS сервер, используем его для резолва
         if self.dns_server:
             from ..utils.net import resolve_hostname_with_dns
             resolved_ip = resolve_hostname_with_dns(build_dc_fqdn(self.dc_short, self.domain), self.dns_server)
             if resolved_ip:
-                return resolved_ip
+                self._resolved_host = resolved_ip
+                return self._resolved_host
         # Если DNS сервер не задан или резолв не удался, используем обычное формирование FQDN
-        return build_dc_fqdn(self.dc_short, self.domain)
+        self._resolved_host = build_dc_fqdn(self.dc_short, self.domain)
+        return self._resolved_host
 
     @property
     def base_dn(self) -> str:

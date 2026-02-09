@@ -1,0 +1,68 @@
+<div class="d-flex justify-content-between align-items-center mb-2">
+  <div class="small text-secondary">
+    Пользователей: <strong>{{ users|length }}</strong>
+    <span class="mx-1">•</span>
+    Групп: <strong>{{ groups|length }}</strong>
+  </div>
+  <div class="d-flex align-items-center gap-2">
+    <div class="spinner-border spinner-border-sm text-secondary htmx-indicator" role="status" aria-hidden="true"></div>
+    <div class="small text-secondary htmx-indicator">Загрузка…</div>
+  </div>
+</div>
+
+<div class="row g-2">
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header py-2">
+        <div class="fw-semibold">Пользователи</div>
+      </div>
+      <div class="card-body py-2">
+        {% if not users %}
+          <div class="small text-secondary">Нет пользователей в группе.</div>
+        {% else %}
+          <div class="list-group list-group-flush small">
+            {% for u in users %}
+              <div class="list-group-item px-0">
+                <div class="fw-semibold">{{ u.display }}</div>
+                {% if u.sam %}
+                  <div class="text-secondary">Логин: <span class="text-danger"><code>{{ u.sam }}</code></span></div>
+                {% endif %}
+                {% if u.mail %}
+                  <div class="text-secondary">E-mail: <a href="mailto:{{ u.mail }}">{{ u.mail }}</a></div>
+                {% endif %}
+              </div>
+            {% endfor %}
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header py-2">
+        <div class="fw-semibold">Вложенные группы</div>
+      </div>
+      <div class="card-body py-2">
+        {% if not groups %}
+          <div class="small text-secondary">Нет вложенных групп.</div>
+        {% else %}
+          <div class="list-group small" style="max-height: 260px; overflow: auto;">
+            {% for g in groups %}
+              <button
+                type="button"
+                class="list-group-item list-group-item-action d-flex justify-content-between align-items-center"
+                hx-get="/users/ad-group-members?id={{ g.id }}"
+                hx-target="#ad-group-members"
+                hx-swap="innerHTML"
+              >
+                <span class="text-truncate" style="max-width: 100%;">{{ g.name }}</span>
+                <span class="badge text-bg-light border text-dark">›</span>
+              </button>
+            {% endfor %}
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>

@@ -51,6 +51,17 @@
   <script src="/static/theme.js"></script>
 
   <script>
+    // Show user-visible message on HTMX server errors (5xx/4xx)
+    document.addEventListener('htmx:responseError', function(ev) {
+      var target = ev.detail.target;
+      if (target) {
+        var code = ev.detail.xhr ? ev.detail.xhr.status : 0;
+        target.innerHTML = "<div class='alert alert-danger py-2 mb-0'>Ошибка сервера" + (code ? " (" + code + ")" : "") + ". Попробуйте позже.</div>";
+      }
+    });
+  </script>
+
+  <script>
     // UI hygiene for HTMX result panes:
     // - Clear stale alerts/results when switching tabs.
     // - Clear results when the corresponding input becomes empty.

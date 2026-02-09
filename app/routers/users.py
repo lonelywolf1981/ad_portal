@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import io
+
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
+from openpyxl import Workbook
 
 from ..deps import require_session_or_hx_redirect, require_initialized_or_redirect
 from ..ad import ADClient
@@ -15,6 +18,80 @@ from ..viewmodels.user_details import build_detail_items
 from ..webui import htmx_alert, templates, ui_result
 
 router = APIRouter()
+
+
+@router.get("/users/ad-groups", response_class=HTMLResponse)
+def users_ad_groups(request: Request):
+    """Load AD groups for the 'Advanced search' UI block (HTMX fragment)."""
+    auth = require_initialized_or_redirect(request)
+    if not isinstance(auth, dict):
+        return auth
+
+    # Only meaningful via HTMX, but safe to return HTML anyway.
+    with db_session() as db:
+        st = get_or_create_settings(db)
+        cfg = ad_cfg_from_settings(st)
+        if not cfg:
+            return htmx_alert(
+                ui_result(
+                    False,
+                    "AD не настроен. Откройте «Настройки» и заполните параметры подключения.",
+                ),
+                status_code=200,
+            )
+
+    client = ADClient(cfg)
+    groups = client.list_groups(limit=5000)
+    # Pre-encode DN into a URL-safe id.
+    for g in groups:
+        g["id"] = dn_to_id(g.get("dn", ""))
+
+    return templates.TemplateResponse(
+        "partials/ad_groups_list.html",
+        {"request": request, "groups": groups},
+    )
+
+
+@router.get("/users/ad-group-members", response_class=HTMLResponse)
+def users_ad_group_members(request: Request, id: str = ""):
+    """Show direct members of the selected AD group (HTMX fragment)."""
+    auth = require_initialized_or_redirect(request)
+    if not isinstance(auth, dict):
+        return auth
+
+    id = (id or "").strip()
+    if not id:
+        return htmx_alert(ui_result(False, "Не выбрана группа."), status_code=200)
+
+    try:
+        group_dn = id_to_dn(id)
+    except Exception:
+        return htmx_alert(ui_result(False, "Некорректный идентификатор группы."), status_code=200)
+
+    with db_session() as db:
+        st = get_or_create_settings(db)
+        cfg = ad_cfg_from_settings(st)
+        if not cfg:
+            return htmx_alert(ui_result(False, "AD не настроен."), status_code=200)
+
+    client = ADClient(cfg)
+    ok, msg, payload = client.get_group_members(group_dn)
+    if not ok:
+        return htmx_alert(ui_result(False, msg or "Не удалось получить состав группы."), status_code=200)
+
+    users = payload.get("users", [])
+    groups = payload.get("groups", [])
+    for g in groups:
+        g["id"] = dn_to_id(g.get("dn", ""))
+
+    return templates.TemplateResponse(
+        "partials/ad_group_members.html",
+        {
+            "request": request,
+            "users": users,
+            "groups": groups,
+        },
+    )
 
 
 @router.get("/users/search", response_class=HTMLResponse)
@@ -264,4 +341,100 @@ def user_view(request: Request, id: str = "", login: str = "", modal: int = 0):
     return templates.TemplateResponse(
         tpl_name,
         {"request": request, "items": items2, "error": "", "caption": caption},
+    )
+
+
+@router.get("/users/ad-disabled", response_class=HTMLResponse)
+def users_ad_disabled(request: Request):
+    """Список отключённых пользователей AD (HTMX-фрагмент)."""
+    auth = require_initialized_or_redirect(request)
+    if not isinstance(auth, dict):
+        return auth
+
+    with db_session() as db:
+        st = get_or_create_settings(db)
+        cfg = ad_cfg_from_settings(st)
+        if not cfg:
+            return htmx_alert(ui_result(False, "AD не настроен."), status_code=200)
+
+    client = ADClient(cfg)
+    ok, msg, users = client.list_disabled_users()
+    if not ok:
+        return htmx_alert(ui_result(False, msg or "Не удалось получить список."), status_code=200)
+
+    return templates.TemplateResponse(
+        "partials/ad_disabled_users.html",
+        {"request": request, "users": users},
+    )
+
+
+@router.get("/users/ad-disabled-export.xlsx")
+def users_ad_disabled_export(request: Request):
+    """Выгрузка отключённых пользователей AD в XLSX."""
+    auth = require_initialized_or_redirect(request)
+    if not isinstance(auth, dict):
+        return RedirectResponse(url="/login", status_code=303)
+
+    with db_session() as db:
+        st = get_or_create_settings(db)
+        cfg = ad_cfg_from_settings(st)
+        if not cfg:
+            return RedirectResponse(url="/", status_code=303)
+
+    client = ADClient(cfg)
+    ok, msg, users = client.list_disabled_users()
+    if not ok:
+        return RedirectResponse(url="/", status_code=303)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Отключённые"
+
+    ws.append(["ФИО", "Логин", "E-mail", "Изменён"])
+    for cell in ws[1]:
+        cell.font = cell.font.copy(bold=True)
+
+    for u in users:
+        ws.append([
+            u.get("display", "") or "—",
+            u.get("sam", "") or "",
+            u.get("mail", "") or "",
+            u.get("when_changed", "") or "—",
+        ])
+
+    for i, w in enumerate([32, 22, 30, 20], start=1):
+        ws.column_dimensions[chr(ord("A") + i - 1)].width = w
+
+    bio = io.BytesIO()
+    wb.save(bio)
+    bio.seek(0)
+
+    return StreamingResponse(
+        bio,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="disabled_users.xlsx"'},
+    )
+
+
+@router.get("/users/ad-no-pin", response_class=HTMLResponse)
+def users_ad_no_pin(request: Request):
+    """Список активных пользователей без ПИН-кода (otherPager пуст). HTMX-фрагмент."""
+    auth = require_initialized_or_redirect(request)
+    if not isinstance(auth, dict):
+        return auth
+
+    with db_session() as db:
+        st = get_or_create_settings(db)
+        cfg = ad_cfg_from_settings(st)
+        if not cfg:
+            return htmx_alert(ui_result(False, "AD не настроен."), status_code=200)
+
+    client = ADClient(cfg)
+    ok, msg, users = client.list_users_without_pin()
+    if not ok:
+        return htmx_alert(ui_result(False, msg or "Не удалось получить список."), status_code=200)
+
+    return templates.TemplateResponse(
+        "partials/ad_no_pin_users.html",
+        {"request": request, "users": users},
     )
