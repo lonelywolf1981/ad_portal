@@ -8,4 +8,7 @@ QWEN.md
 .qwen
 .pytest_cache
 tests
+AUDIT.md
+CLAUDE.md
+.claude/
 

@@ -7,28 +7,13 @@ from fastapi.responses import HTMLResponse
 
 from ..deps import require_initialized_or_redirect
 from ..repo import db_session, get_or_create_settings
-from ..timezone_utils import format_ru_local
-from ..webui import templates
 from ..services.ad import ad_cfg_from_settings
 from ..ad import ADClient
+from ..timezone_utils import format_ru_local
+from ..webui import templates
 
 
 router = APIRouter()
-
-
-_RE_UPDATED_USERS = re.compile(r"Обновлено\s+пользовател(?:ей|я):\s*(\d+)", re.IGNORECASE)
-
-
-def _parse_updated_users(summary: str) -> int | None:
-    if not summary:
-        return None
-    m = _RE_UPDATED_USERS.search(summary)
-    if not m:
-        return None
-    try:
-        return int(m.group(1))
-    except Exception:
-        return None
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -45,14 +30,15 @@ def index(request: Request):
     net_scan_enabled = False
     net_scan_ready = False
 
-    # AD / scan stats for the "Сеанс" block.
-    ad_users_total: int | None = None
-    ad_users_enabled: int | None = None
-    online_users_last_scan: int | None = None
+    # AD stats (placeholders by default; page must not fail if AD is unreachable)
+    ad_users_total: int | str = "—"
+    ad_users_enabled: int | str = "—"
+    online_users: int | str = "—"
 
     try:
         with db_session() as db:
             st = get_or_create_settings(db)
+
             net_scan_enabled = bool(getattr(st, "net_scan_enabled", False))
             cidrs_txt = (getattr(st, "net_scan_cidrs", "") or "").strip()
             net_scan_ready = bool(net_scan_enabled and cidrs_txt)
@@ -66,29 +52,26 @@ def index(request: Request):
                     net_scan_last_token = str(dt)
 
             net_scan_last_summary = (getattr(st, "net_scan_last_summary", "") or "").strip()
+
             # Authoritative "running" marker is net_scan_lock_ts (set/cleared by background task).
             net_scan_is_running = bool(getattr(st, "net_scan_lock_ts", None))
 
-            # --- Online users (authoritative source = net-scan summary) ---
-            # We deliberately do NOT infer this from timestamps (TZ/type issues); the scanner already reports the count.
-            online_users_last_scan = _parse_updated_users(net_scan_last_summary)
+            # Online users count comes from net-scan summary ("Обновлено пользователей: N")
+            m = re.search(r"Обновлено пользователей:\s*(\d+)", net_scan_last_summary)
+            if m:
+                online_users = int(m.group(1))
 
-            # --- AD user counts (total / enabled) ---
-            # Show only when AD is configured; failure should NOT break the page.
-            try:
-                cfg = ad_cfg_from_settings(st)
-                if cfg:
-                    client = ADClient(cfg)
-                    ok_t, _, cnt_t = client.count_users(enabled_only=False)
-                    ok_e, _, cnt_e = client.count_users(enabled_only=True)
-                    if ok_t:
-                        ad_users_total = int(cnt_t)
-                    if ok_e:
-                        ad_users_enabled = int(cnt_e)
-            except Exception:
-                pass
+            # AD totals (total + enabled)
+            cfg = ad_cfg_from_settings(st)
+            if cfg:
+                client = ADClient(cfg)
+                ok, _ = client.service_bind()
+                if ok:
+                    total, enabled = client.count_users_total_and_enabled()
+                    ad_users_total = total
+                    ad_users_enabled = enabled
     except Exception:
-        # do not fail the main page if settings schema is missing
+        # do not fail the main page if settings schema is missing or AD is down
         pass
 
     return templates.TemplateResponse(
@@ -102,10 +85,9 @@ def index(request: Request):
             "net_scan_is_running": net_scan_is_running,
             "net_scan_enabled": net_scan_enabled,
             "net_scan_ready": net_scan_ready,
-
             "ad_users_total": ad_users_total,
             "ad_users_enabled": ad_users_enabled,
-            "online_users_last_scan": online_users_last_scan,
+            "online_users": online_users,
         },
     )
 

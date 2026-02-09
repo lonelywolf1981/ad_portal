@@ -1,3 +1,5 @@
+from functools import lru_cache
+
 from pydantic_settings import BaseSettings
 from pydantic import Field
 
@@ -16,5 +18,6 @@ class EnvSettings(BaseSettings):
         populate_by_name = True
 
 
+@lru_cache(maxsize=1)
 def get_env() -> EnvSettings:
     return EnvSettings()

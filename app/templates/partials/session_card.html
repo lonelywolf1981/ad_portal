@@ -4,44 +4,37 @@
 
     <div class="row small">
       <div class="col-md-6">
-        {# Backward/forward compatibility:
-           - old builds stored username in key "u"
-           - current builds store username in key "username" #}
-        <div class="text-secondary">Пользователь: <strong>{{ user.get("username") or user.get("u", "") }}</strong></div>
-        <div class="text-secondary">Тип: <strong>{{ user.get("auth", "") }}</strong></div>
+        <div class="text-secondary">Пользователь: <strong>{{ user.get("username","") }}</strong></div>
+        <div class="text-secondary">Тип: <strong>{{ user.get("auth","") }}</strong></div>
         <div class="text-secondary">Доступ к настройкам: <strong>{{ "Да" if user.get("settings") else "Нет" }}</strong></div>
       </div>
       <div class="col-md-6">
-        {# Backward/forward compatibility:
-           - old builds stored display name in key "dn"
-           - current builds store display name in key "display_name" #}
-        <div class="text-secondary">Отображаемое имя: <strong>{{ user.get("display_name") or user.get("dn", "") }}</strong></div>
+        <div class="text-secondary">Отображаемое имя: <strong>{{ user.get("display_name","") }}</strong></div>
       </div>
     </div>
 
-    <div class="mt-2 pt-2 border-top text-secondary">
-      <div class="mb-2">
-        <div class="fw-semibold text-body small">Статистика</div>
+    <div class="mt-3 pt-3 border-top">
+      <div class="h6 mb-2">Статистика</div>
 
-        <div class="d-flex flex-wrap align-items-center justify-content-between w-100 mt-1 fs-5">
-          <div class="me-3">
-            Пользователей AD:
-            <span class="fw-bold text-info">{{ ad_users_total if ad_users_total is not none else "—" }}</span>
-          </div>
-          <div class="me-3">
-            Активных (enabled):
-            <span class="fw-bold text-info">{{ ad_users_enabled if ad_users_enabled is not none else "—" }}</span>
-          </div>
-          <div class="">
-            Онлайн (по последнему скану):
-            <span class="fw-bold text-info">{{ online_users_last_scan if online_users_last_scan is not none else "—" }}</span>
-          </div>
+      <div class="d-flex flex-wrap justify-content-between align-items-end gap-3">
+        <div class="flex-grow-1" style="min-width: 220px;">
+          <div class="text-secondary fs-5">Пользователей AD: <span class="fw-semibold text-info fs-3">{{ ad_users_total }}</span></div>
+        </div>
+
+        <div class="flex-grow-1 text-md-center" style="min-width: 260px;">
+          <div class="text-secondary fs-5">Активных (enabled): <span class="fw-semibold text-info fs-3">{{ ad_users_enabled }}</span></div>
+        </div>
+
+        <div class="flex-grow-1 text-md-end" style="min-width: 300px;">
+          <div class="text-secondary fs-5">Онлайн (по последнему скану): <span class="fw-semibold text-info fs-3">{{ online_users }}</span></div>
         </div>
       </div>
+    </div>
 
-      <div class="mb-1 small">Статус: {% if net_scan_is_running %}<span class="badge text-bg-info">Выполняется…</span>{% else %}<span class="badge text-bg-secondary">Ожидание</span>{% endif %}</div>
-      <div class="small">Последний запуск: <strong>{{ net_scan_last_run if net_scan_last_run else "—" }}</strong></div>
-      <div class="small">Результат: {% if net_scan_last_summary %}{{ net_scan_last_summary }}{% else %}—{% endif %}</div>
+    <div class="mt-3 pt-2 border-top small text-secondary">
+      <div class="mb-1">Статус: {% if net_scan_is_running %}<span class="badge text-bg-info">Выполняется…</span>{% else %}<span class="badge text-bg-secondary">Ожидание</span>{% endif %}</div>
+      <div>Последний запуск: <strong>{{ net_scan_last_run if net_scan_last_run else "—" }}</strong></div>
+      <div>Результат: {% if net_scan_last_summary %}{{ net_scan_last_summary }}{% else %}—{% endif %}</div>
     </div>
   </div>
 </div>

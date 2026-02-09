@@ -4,6 +4,7 @@ import ipaddress
 import json
 import inspect
 import re
+from html import escape as html_escape
 from datetime import datetime, timedelta
 from pydantic import ValidationError
 
@@ -266,9 +267,12 @@ def _effective_settings_from_form(db, form: dict) -> AppSettingsSchema:
         patch["host_query"]["test_host"] = (form.get("host_query_test_host") or "").strip()
 
     # Net scan
-    patch["net_scan"]["enabled"] = bool(form.get("net_scan_enabled"))
-    patch["net_scan"]["cidrs"] = _parse_cidrs(form.get("net_scan_cidrs") or "")
-    patch["net_scan"]["dns_server"] = (form.get("net_scan_dns_server") or "").strip()
+    if "net_scan_enabled" in form:
+        patch["net_scan"]["enabled"] = bool(form.get("net_scan_enabled"))
+    if form.get("net_scan_cidrs") is not None:
+        patch["net_scan"]["cidrs"] = _parse_cidrs(form.get("net_scan_cidrs") or "")
+    if form.get("net_scan_dns_server") is not None:
+        patch["net_scan"]["dns_server"] = (form.get("net_scan_dns_server") or "").strip()
 
     return AppSettingsSchema.model_validate(patch)
 
@@ -299,14 +303,14 @@ def _render_validate_result(res) -> HTMLResponse:
         content = f"""
         <div class="alert alert-danger py-2 mb-0">
           <div class="d-flex justify-content-between align-items-start">
-            <div>{res.message}</div>
+            <div>{html_escape(res.message)}</div>
             <button class="btn btn-link btn-sm p-0 ms-2" type="button" data-bs-toggle="collapse" data-bs-target="#{details_id}" aria-expanded="false" aria-controls="{details_id}">
               Подробнее
             </button>
           </div>
           <div class="collapse mt-2" id="{details_id}">
             <div class="card card-body p-2 small bg-light">
-              <pre class="mb-0">{details}</pre>
+              <pre class="mb-0">{html_escape(details)}</pre>
             </div>
           </div>
         </div>
@@ -762,7 +766,6 @@ def settings_ad_test(
             )
 
         st = get_or_create_settings(db)
-        st = get_or_create_settings(db)
 
         ok, msg, _groups = ad_test_and_load_groups(
             db,
@@ -819,16 +822,17 @@ def settings_ad_test(
             details_div = f"""
             <div class="collapse mt-2" id="ad-error-details">
               <div class="card card-body p-2 small bg-light">
-                {msg}
+                {html_escape(msg)}
               </div>
             </div>
             """
 
+        safe_msg = html_escape(msg)
         return HTMLResponse(
             content=f"""
             <div class="alert {alert_cls} py-2 mb-3">
               <div class="d-flex justify-content-between align-items-start">
-                <div>{msg}</div>
+                <div>{safe_msg}</div>
                 {details_btn}
               </div>
               {details_div}

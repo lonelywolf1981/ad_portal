@@ -252,10 +252,11 @@ class ADClient:
                 conn.unbind()
                 return None
 
+            safe_login = escape_ldap_filter_value(login)
             if "@" in login:
-                flt = f"(userPrincipalName={login})"
+                flt = f"(userPrincipalName={safe_login})"
             else:
-                flt = f"(sAMAccountName={login})"
+                flt = f"(sAMAccountName={safe_login})"
 
             attrs = ["distinguishedName", "sAMAccountName", "displayName", "mail", "memberOf"]
             ok = conn.search(
@@ -329,6 +330,301 @@ class ADClient:
         conn.unbind()
         groups.sort(key=lambda x: x["name"].lower())
         return groups
+
+    def get_group_members(self, group_dn: str) -> tuple[bool, str, dict]:
+        """Return direct members of an AD group.
+
+        Returns: (ok, message, {"users": [...], "groups": [...]})
+        users: [{"dn": str, "sam": str, "display": str, "mail": str}]
+        groups: [{"dn": str, "name": str}]
+        """
+        group_dn = (group_dn or "").strip()
+        if not group_dn:
+            return False, "Пустой DN группы.", {}
+
+        base = self.cfg.base_dn
+        if not base:
+            return False, "BaseDN пустой (проверьте домен в настройках).", {}
+
+        conn: Connection | None = None
+        try:
+            conn = self._conn(self.cfg.bind_principal, self.cfg.bind_password)
+            if not conn.bind():
+                res = dict(conn.result or {})
+                conn.unbind()
+                return False, f"Ошибка bind: {res}", {}
+
+            escaped_dn = escape_ldap_filter_value(group_dn)
+            flt = f"(memberOf={escaped_dn})"
+
+            attrs = [
+                "distinguishedName",
+                "objectClass",
+                "sAMAccountName",
+                "displayName",
+                "mail",
+                "cn",
+                "name",
+            ]
+            ok = conn.search(
+                search_base=base,
+                search_filter=flt,
+                search_scope=SUBTREE,
+                attributes=attrs,
+                size_limit=1000,
+            )
+            if not ok:
+                res = dict(conn.result or {})
+                conn.unbind()
+                return False, f"Поиск не выполнен: {res}", {}
+
+            users: list[dict] = []
+            groups: list[dict] = []
+            for e in conn.entries:
+                dn = str(getattr(e, "distinguishedName", "") or "")
+                if not dn:
+                    continue
+
+                obj_classes = [str(c).lower() for c in (getattr(e, "objectClass", []) or [])]
+
+                if "group" in obj_classes:
+                    cn = str(getattr(e, "cn", "") or "")
+                    disp = str(getattr(e, "displayName", "") or "")
+                    name = disp or cn or str(getattr(e, "name", "") or "")
+                    groups.append({"dn": dn, "name": name})
+                else:
+                    sam = str(getattr(e, "sAMAccountName", "") or "")
+                    display = str(getattr(e, "displayName", "") or "")
+                    mail = str(getattr(e, "mail", "") or "")
+                    users.append({
+                        "dn": dn,
+                        "sam": sam,
+                        "display": display or sam,
+                        "mail": mail,
+                    })
+
+            conn.unbind()
+            users.sort(key=lambda x: (x.get("display") or "").lower())
+            groups.sort(key=lambda x: (x.get("name") or "").lower())
+            return True, "OK", {"users": users, "groups": groups}
+
+        except LDAPException as e:
+            try:
+                if conn:
+                    conn.unbind()
+            except Exception:
+                pass
+            return False, f"LDAP ошибка: {e}", {}
+
+    def list_disabled_users(self, limit: int = 5000) -> tuple[bool, str, list[dict]]:
+        """Return all disabled AD users.
+
+        Returns: (ok, message, [{"dn", "sam", "display", "mail", "when_changed"}])
+        """
+        base = self.cfg.base_dn
+        if not base:
+            return False, "BaseDN пустой (проверьте домен в настройках).", []
+
+        conn: Connection | None = None
+        try:
+            conn = self._conn(self.cfg.bind_principal, self.cfg.bind_password)
+            if not conn.bind():
+                res = dict(conn.result or {})
+                conn.unbind()
+                return False, f"Ошибка bind: {res}", []
+
+            flt = "(&(objectCategory=person)(objectClass=user)(userAccountControl:1.2.840.113556.1.4.803:=2))"
+            attrs = ["distinguishedName", "sAMAccountName", "displayName", "mail", "whenChanged"]
+
+            items: list[dict] = []
+            try:
+                for entry in conn.extend.standard.paged_search(
+                    search_base=base,
+                    search_filter=flt,
+                    search_scope=SUBTREE,
+                    attributes=attrs,
+                    paged_size=1000,
+                    generator=True,
+                ):
+                    if entry.get("type") != "searchResEntry":
+                        continue
+                    a = entry.get("attributes", {})
+                    dn = str(a.get("distinguishedName", "") or entry.get("dn", ""))
+                    if not dn:
+                        continue
+                    sam = str(a.get("sAMAccountName", "") or "")
+                    display = str(a.get("displayName", "") or "")
+                    mail = str(a.get("mail", "") or "")
+                    wc = a.get("whenChanged")
+                    when_changed = ""
+                    if wc:
+                        if isinstance(wc, datetime):
+                            when_changed = wc.strftime("%d.%m.%Y %H:%M")
+                        else:
+                            when_changed = str(wc)
+                    items.append({
+                        "dn": dn,
+                        "sam": sam,
+                        "display": display or sam,
+                        "mail": mail,
+                        "when_changed": when_changed,
+                    })
+                    if len(items) >= limit:
+                        break
+            except Exception:
+                conn.search(
+                    search_base=base, search_filter=flt, search_scope=SUBTREE,
+                    attributes=attrs, size_limit=limit,
+                )
+                for e in conn.entries:
+                    dn = str(getattr(e, "distinguishedName", "") or "")
+                    if not dn:
+                        continue
+                    sam = str(getattr(e, "sAMAccountName", "") or "")
+                    display = str(getattr(e, "displayName", "") or "")
+                    mail = str(getattr(e, "mail", "") or "")
+                    wc = getattr(e, "whenChanged", None)
+                    when_changed = ""
+                    if wc:
+                        if isinstance(wc.value, datetime):
+                            when_changed = wc.value.strftime("%d.%m.%Y %H:%M")
+                        else:
+                            when_changed = str(wc)
+                    items.append({
+                        "dn": dn,
+                        "sam": sam,
+                        "display": display or sam,
+                        "mail": mail,
+                        "when_changed": when_changed,
+                    })
+
+            conn.unbind()
+            items.sort(key=lambda x: (x.get("display") or "").lower())
+            return True, "OK", items
+
+        except LDAPException as e:
+            try:
+                if conn:
+                    conn.unbind()
+            except Exception:
+                pass
+            return False, f"LDAP ошибка: {e}", []
+
+    def list_users_without_pin(self, limit: int = 5000) -> tuple[bool, str, list[dict]]:
+        """Return all enabled AD users with empty otherPager field.
+
+        Returns: (ok, message, [{"dn", "sam", "display", "mail"}])
+        """
+        base = self.cfg.base_dn
+        if not base:
+            return False, "BaseDN пустой (проверьте домен в настройках).", []
+
+        conn: Connection | None = None
+        try:
+            conn = self._conn(self.cfg.bind_principal, self.cfg.bind_password)
+            if not conn.bind():
+                res = dict(conn.result or {})
+                conn.unbind()
+                return False, f"Ошибка bind: {res}", []
+
+            flt = "(&(objectCategory=person)(objectClass=user)(!(userAccountControl:1.2.840.113556.1.4.803:=2))(!(otherPager=*)))"
+            attrs = ["distinguishedName", "sAMAccountName", "displayName", "mail"]
+
+            items: list[dict] = []
+            try:
+                for entry in conn.extend.standard.paged_search(
+                    search_base=base,
+                    search_filter=flt,
+                    search_scope=SUBTREE,
+                    attributes=attrs,
+                    paged_size=1000,
+                    generator=True,
+                ):
+                    if entry.get("type") != "searchResEntry":
+                        continue
+                    a = entry.get("attributes", {})
+                    dn = str(a.get("distinguishedName", "") or entry.get("dn", ""))
+                    if not dn:
+                        continue
+                    sam = str(a.get("sAMAccountName", "") or "")
+                    display = str(a.get("displayName", "") or "")
+                    mail = str(a.get("mail", "") or "")
+                    items.append({
+                        "dn": dn,
+                        "sam": sam,
+                        "display": display or sam,
+                        "mail": mail,
+                    })
+                    if len(items) >= limit:
+                        break
+            except Exception:
+                conn.search(
+                    search_base=base, search_filter=flt, search_scope=SUBTREE,
+                    attributes=attrs, size_limit=limit,
+                )
+                for e in conn.entries:
+                    dn = str(getattr(e, "distinguishedName", "") or "")
+                    if not dn:
+                        continue
+                    sam = str(getattr(e, "sAMAccountName", "") or "")
+                    display = str(getattr(e, "displayName", "") or "")
+                    mail = str(getattr(e, "mail", "") or "")
+                    items.append({
+                        "dn": dn,
+                        "sam": sam,
+                        "display": display or sam,
+                        "mail": mail,
+                    })
+
+            conn.unbind()
+            items.sort(key=lambda x: (x.get("display") or "").lower())
+            return True, "OK", items
+
+        except LDAPException as e:
+            try:
+                if conn:
+                    conn.unbind()
+            except Exception:
+                pass
+            return False, f"LDAP ошибка: {e}", []
+
+    def count_users_total_and_enabled(self) -> tuple[int, int]:
+        """Return (total_users, enabled_users).
+
+        Uses server-side LDAP filters; counts are based on direct user objects.
+        """
+        conn = self._conn(self.cfg.bind_principal, self.cfg.bind_password)
+        if not conn.bind():
+            conn.unbind()
+            return 0, 0
+
+        base = self.cfg.base_dn
+        total_filter = "(&(objectCategory=person)(objectClass=user))"
+        enabled_filter = "(&(objectCategory=person)(objectClass=user)(!(userAccountControl:1.2.840.113556.1.4.803:=2)))"
+
+        def _count(flt: str) -> int:
+            n = 0
+            try:
+                for _ in conn.extend.standard.paged_search(
+                    search_base=base,
+                    search_filter=flt,
+                    search_scope=SUBTREE,
+                    attributes=[],
+                    paged_size=1000,
+                    generator=True,
+                ):
+                    n += 1
+            except Exception:
+                conn.search(search_base=base, search_filter=flt, search_scope=SUBTREE, attributes=[])
+                n = len(conn.entries)
+            return n
+
+        try:
+            total = _count(total_filter)
+            enabled = _count(enabled_filter)
+        finally:
+            conn.unbind()
+        return total, enabled
 
     def search_users(self, query: str, limit: int = 50) -> tuple[bool, str, list[dict]]:
         """Search users by partial name/surname/login.
@@ -517,77 +813,3 @@ class ADClient:
             except Exception:
                 pass
             return False, f"LDAP ошибка: {e}", {}
-
-    def count_users(self, *, enabled_only: bool = False, page_size: int = 500) -> tuple[bool, str, int]:
-        """Count AD users under BaseDN.
-
-        We intentionally keep this lightweight and defensive:
-        - paged search (to avoid server-side size limits)
-        - no heavy attribute fetching
-
-        Returns: (ok, message, count)
-        """
-
-        base = self.cfg.base_dn
-        if not base:
-            return False, "BaseDN пустой (проверьте домен в настройках).", 0
-
-        # Filter:
-        # - only user objects (exclude computers)
-        # - optionally exclude disabled accounts via userAccountControl bit 2
-        flt_parts = [
-            "(objectCategory=person)",
-            "(objectClass=user)",
-            "(!(objectClass=computer))",
-        ]
-        if enabled_only:
-            # LDAP_MATCHING_RULE_BIT_AND (1.2.840.113556.1.4.803)
-            # userAccountControl:...:=2 => DISABLED
-            flt_parts.append("(!(userAccountControl:1.2.840.113556.1.4.803:=2))")
-
-        flt = "(&" + "".join(flt_parts) + ")"
-
-        conn: Connection | None = None
-        try:
-            conn = self._conn(self.cfg.bind_principal, self.cfg.bind_password)
-            if not conn.bind():
-                res = dict(conn.result or {})
-                conn.unbind()
-                return False, f"Ошибка bind: {res}", 0
-
-            # Use ldap3 paged search controls.
-            # We request only DN (no attributes) to keep traffic minimal.
-            count = 0
-            cookie = None
-            while True:
-                ok = conn.search(
-                    search_base=base,
-                    search_filter=flt,
-                    search_scope=SUBTREE,
-                    attributes=[],
-                    paged_size=int(page_size),
-                    paged_cookie=cookie,
-                )
-                if not ok:
-                    res = dict(conn.result or {})
-                    conn.unbind()
-                    return False, f"Поиск не выполнен: {res}", 0
-
-                count += len(conn.entries)
-                controls = conn.result.get("controls", {}) if isinstance(conn.result, dict) else {}
-                paged = controls.get("1.2.840.113556.1.4.319", {})
-                value = paged.get("value", {}) if isinstance(paged, dict) else {}
-                cookie = value.get("cookie")
-                if not cookie:
-                    break
-
-            conn.unbind()
-            return True, "OK", int(count)
-
-        except LDAPException as e:
-            try:
-                if conn:
-                    conn.unbind()
-            except Exception:
-                pass
-            return False, f"LDAP ошибка: {e}", 0

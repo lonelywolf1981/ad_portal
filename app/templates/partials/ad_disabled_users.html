@@ -1,0 +1,27 @@
+<div class="d-flex justify-content-between align-items-center mb-2">
+  <div class="small text-secondary">
+    Отключённые пользователи: <strong>{{ users|length }}</strong>
+  </div>
+  <a class="btn btn-outline-secondary btn-sm" href="/users/ad-disabled-export.xlsx">Скачать XLSX</a>
+</div>
+
+{% if not users %}
+  <div class="small text-secondary">Нет отключённых пользователей.</div>
+{% else %}
+  <div class="list-group list-group-flush small" style="max-height: 420px; overflow: auto;">
+    {% for u in users %}
+      <div class="list-group-item px-0">
+        <div class="fw-semibold">{{ u.display }}</div>
+        {% if u.sam %}
+          <div class="text-secondary">Логин: <code>{{ u.sam }}</code></div>
+        {% endif %}
+        {% if u.mail %}
+          <div class="text-secondary">E-mail: <a href="mailto:{{ u.mail }}">{{ u.mail }}</a></div>
+        {% endif %}
+        {% if u.when_changed %}
+          <div class="text-secondary">Изменён: {{ u.when_changed }}</div>
+        {% endif %}
+      </div>
+    {% endfor %}
+  </div>
+{% endif %}
