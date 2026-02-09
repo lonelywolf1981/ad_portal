@@ -1,0 +1,37 @@
+{% if error %}
+  <div class="alert alert-danger py-2 mb-0">{{ error }}</div>
+{% else %}
+  {% if not users %}
+    <div class="text-secondary small">Ничего не найдено.</div>
+  {% else %}
+    <form
+      hx-post="/ad-management/add-users-to-group"
+      hx-target="#groupEditModalResult"
+      hx-swap="innerHTML"
+      hx-confirm="Добавить выбранных пользователей в группу?"
+    >
+      <input type="hidden" name="group_dn" value="{{ group_dn }}">
+
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <div class="small text-secondary">Найдено: <strong>{{ users|length }}</strong></div>
+        <button type="submit" class="btn btn-outline-primary btn-sm">Добавить выбранных</button>
+      </div>
+
+      <div class="list-group">
+        {% for u in users %}
+          <label class="list-group-item d-flex align-items-start gap-2">
+            <input class="form-check-input mt-1" type="checkbox" name="user_dns" value="{{ u.dn }}">
+            <span class="flex-grow-1">
+              <div class="fw-semibold">{{ u.fio }}</div>
+              <div class="small text-secondary">{{ u.login }}</div>
+            </span>
+          </label>
+        {% endfor %}
+      </div>
+
+      <div class="small text-secondary mt-2">
+        Подсказка: если ничего не выбрано, операция не выполнится.
+      </div>
+    </form>
+  {% endif %}
+{% endif %}

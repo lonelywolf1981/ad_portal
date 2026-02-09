@@ -6,7 +6,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from openpyxl import Workbook
 
-from ..deps import require_session_or_hx_redirect, require_initialized_or_redirect
+from ..deps import require_session_or_hx_redirect, require_initialized_or_redirect, get_ad_config
 from ..ad import ADClient
 from ..net_scan import parse_cidrs, reverse_dns
 from ..presence import fmt_dt_ru, get_presence_map, normalize_login
@@ -351,11 +351,9 @@ def users_ad_disabled(request: Request):
     if not isinstance(auth, dict):
         return auth
 
-    with db_session() as db:
-        st = get_or_create_settings(db)
-        cfg = ad_cfg_from_settings(st)
-        if not cfg:
-            return htmx_alert(ui_result(False, "AD не настроен."), status_code=200)
+    cfg = get_ad_config()
+    if not cfg:
+        return htmx_alert(ui_result(False, "AD не настроен."), status_code=200)
 
     client = ADClient(cfg)
     ok, msg, users = client.list_disabled_users()
@@ -375,11 +373,9 @@ def users_ad_disabled_export(request: Request):
     if not isinstance(auth, dict):
         return RedirectResponse(url="/login", status_code=303)
 
-    with db_session() as db:
-        st = get_or_create_settings(db)
-        cfg = ad_cfg_from_settings(st)
-        if not cfg:
-            return RedirectResponse(url="/", status_code=303)
+    cfg = get_ad_config()
+    if not cfg:
+        return RedirectResponse(url="/", status_code=303)
 
     client = ADClient(cfg)
     ok, msg, users = client.list_disabled_users()
@@ -423,11 +419,9 @@ def users_ad_no_pin(request: Request):
     if not isinstance(auth, dict):
         return auth
 
-    with db_session() as db:
-        st = get_or_create_settings(db)
-        cfg = ad_cfg_from_settings(st)
-        if not cfg:
-            return htmx_alert(ui_result(False, "AD не настроен."), status_code=200)
+    cfg = get_ad_config()
+    if not cfg:
+        return htmx_alert(ui_result(False, "AD не настроен."), status_code=200)
 
     client = ADClient(cfg)
     ok, msg, users = client.list_users_without_pin()

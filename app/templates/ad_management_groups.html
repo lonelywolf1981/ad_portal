@@ -1,0 +1,51 @@
+{% if error %}
+  <div class="alert alert-danger py-2 mb-0">{{ error }}</div>
+{% else %}
+  {% if not groups %}
+    <div class="text-secondary small">Ничего не найдено.</div>
+  {% else %}
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <div class="small text-secondary">Найдено: <strong>{{ groups|length }}</strong></div>
+    </div>
+
+    <div class="row g-2">
+      {% for g in groups %}
+        <div class="col-12 col-lg-6">
+          <div class="card shadow-sm">
+            <div class="card-body py-2">
+              <div class="d-flex flex-column flex-sm-row justify-content-between align-items-start gap-3">
+                <div class="flex-grow-1">
+                  <div class="fw-semibold">{{ g.name }}</div>
+                  <div class="small text-secondary">
+                    {% if g.description %}
+                      <div>{{ g.description }}</div>
+                    {% endif %}
+                    <div>Distinguished Name: <code>{{ g.dn }}</code></div>
+                  </div>
+                </div>
+                <div class="flex-shrink-0 d-grid d-sm-block">
+                  <div class="btn-group-vertical" role="group">
+                    <button
+                      class="btn btn-outline-secondary btn-sm"
+                      type="button"
+                      hx-get="/ad-management/group-details?id={{ g.id }}"
+                      hx-target="#ad-mgmt-modal"
+                      hx-swap="innerHTML"
+                    >Редактировать</button>
+                    <button
+                      class="btn btn-outline-danger btn-sm"
+                      type="button"
+                      hx-get="/ad-management/delete-group-modal?id={{ g.id }}&name={{ g.name|urlencode }}"
+                      hx-target="#ad-mgmt-modal"
+                      hx-swap="innerHTML"
+                    >Удалить</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+{% endif %}

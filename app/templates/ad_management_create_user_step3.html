@@ -1,0 +1,166 @@
+<div class="modal fade show d-block" tabindex="-1" style="background:rgba(0,0,0,.5)">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Создание пользователя &mdash; Шаг 3 из 4</h5>
+        <button type="button" class="btn-close" onclick="closeAdMgmtModal()" aria-label="Close"></button>
+      </div>
+      <form id="wizard-step3-form"
+        hx-post="/ad-management/create-user-step4"
+        hx-target="#ad-mgmt-modal"
+        hx-swap="innerHTML"
+      >
+        <input type="hidden" name="ou" value="{{ d.ou }}">
+        <input type="hidden" name="template_user_dn" value="{{ d.template_user_dn }}">
+
+        <div class="modal-body">
+          {% if error %}
+            <div class="alert alert-danger small">{{ error }}</div>
+          {% endif %}
+
+          <div class="small text-secondary mb-3">OU: <code>{{ d.ou_label }}</code>
+            {% if d.template_display %} | Шаблон: <strong>{{ d.template_display }}</strong>{% endif %}
+          </div>
+
+          <!-- ── Учётные данные ── -->
+          <h6 class="border-bottom pb-1 mb-2">Учётные данные</h6>
+          <div class="row g-2 mb-3">
+            <div class="col-md-4">
+              <label class="form-label small">Логин (sAMAccountName) <span class="text-danger">*</span></label>
+              <input type="text" class="form-control form-control-sm" name="username" value="{{ d.username }}" required
+                pattern="[A-Za-z0-9._\-]+" title="Только латиница, цифры, точка, дефис, подчёркивание"
+                oninput="var f=this.form,u=this.value.trim(),em=f.querySelector('[name=email]'),a=u?u+'@jsq.kz':'';if(!em.value.trim()||em.dataset.auto===em.value.trim()){em.value=a;em.dataset.auto=a}">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small">Имя</label>
+              <input type="text" class="form-control form-control-sm" name="first_name" value="{{ d.first_name }}"
+                oninput="var f=this.form,fn=f.querySelector('[name=first_name]').value.trim(),ln=f.querySelector('[name=last_name]').value.trim(),dn=f.querySelector('[name=display_name]'),a=(fn+' '+ln).trim();if(!dn.value.trim()||dn.dataset.auto===dn.value.trim()){dn.value=a;dn.dataset.auto=a}">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small">Фамилия</label>
+              <input type="text" class="form-control form-control-sm" name="last_name" value="{{ d.last_name }}"
+                oninput="var f=this.form,fn=f.querySelector('[name=first_name]').value.trim(),ln=f.querySelector('[name=last_name]').value.trim(),dn=f.querySelector('[name=display_name]'),a=(fn+' '+ln).trim();if(!dn.value.trim()||dn.dataset.auto===dn.value.trim()){dn.value=a;dn.dataset.auto=a}">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small">Отображаемое имя</label>
+              <input type="text" class="form-control form-control-sm" name="display_name" value="{{ d.display_name }}">
+              <div class="form-text">Заполняется автоматически из Имя + Фамилия</div>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small">Email</label>
+              <input type="email" class="form-control form-control-sm" name="email" value="{{ d.email }}">
+              <div class="form-text">Заполняется автоматически: логин@jsq.kz</div>
+            </div>
+          </div>
+
+          <!-- ── Пароль ── -->
+          <h6 class="border-bottom pb-1 mb-2">Пароль</h6>
+          <div class="row g-2 mb-2">
+            <div class="col-md-6">
+              <label class="form-label small">Пароль <span class="text-danger">*</span></label>
+              <input type="password" class="form-control form-control-sm" name="password" value="{{ d.password }}" required
+                pattern="[\x20-\x7E]+"
+                title="Только английские буквы, цифры и спецсимволы"
+                oninput="var ok=/^[\x20-\x7e]*$/.test(this.value);this.classList.toggle('is-invalid',!ok&amp;&amp;this.value.length>0);this.classList.toggle('is-valid',ok&amp;&amp;this.value.length>0);var c=this.form.querySelector('[name=password_confirm]');if(c&amp;&amp;c.value){c.dispatchEvent(new Event('input'))}">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small">Подтверждение пароля <span class="text-danger">*</span></label>
+              <input type="password" class="form-control form-control-sm" name="password_confirm" value="{{ d.password_confirm }}" required
+                oninput="var p=this.form.querySelector('[name=password]').value;var m=this.value===p;this.classList.toggle('is-invalid',!m&amp;&amp;this.value.length>0);this.classList.toggle('is-valid',m&amp;&amp;this.value.length>0)">
+            </div>
+          </div>
+          <div class="mb-3">
+            <div class="form-check form-check-inline">
+              <input class="form-check-input" type="checkbox" name="must_change_password" id="chk-must-change"
+                {{ 'checked' if d.must_change_password }}>
+              <label class="form-check-label small" for="chk-must-change">Сменить пароль при первом входе</label>
+            </div>
+            <div class="form-check form-check-inline">
+              <input class="form-check-input" type="checkbox" name="cannot_change_password" id="chk-cannot-change"
+                {{ 'checked' if d.cannot_change_password }}
+                onchange="var mc=document.getElementById('chk-must-change');if(this.checked){mc.checked=false;mc.disabled=true}else{mc.disabled=false}">
+              <label class="form-check-label small" for="chk-cannot-change">Запретить смену пароля</label>
+            </div>
+            <div class="form-check form-check-inline">
+              <input class="form-check-input" type="checkbox" name="password_never_expires" id="chk-pw-no-expire"
+                {{ 'checked' if d.password_never_expires }}>
+              <label class="form-check-label small" for="chk-pw-no-expire">Срок действия пароля не ограничен</label>
+            </div>
+          </div>
+
+          <!-- ── Дополнительно ── -->
+          <h6 class="border-bottom pb-1 mb-2">Дополнительно</h6>
+          <div class="row g-2 mb-3">
+            <div class="col-md-4">
+              <label class="form-label small">ПИН-код 1</label>
+              <input type="text" class="form-control form-control-sm" name="otherPager_1" value="{{ d.otherPager_1 }}">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small">ПИН-код 2</label>
+              <input type="text" class="form-control form-control-sm" name="otherPager_2" value="{{ d.otherPager_2 }}">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small">IP-телефон</label>
+              <input type="text" class="form-control form-control-sm" name="ipPhone" value="{{ d.ipPhone }}">
+            </div>
+          </div>
+
+          <!-- ── Организация ── -->
+          <h6 class="border-bottom pb-1 mb-2">Организация</h6>
+          <div class="row g-2 mb-3">
+            <div class="col-md-6">
+              <label class="form-label small">Организация</label>
+              <input type="text" class="form-control form-control-sm" name="company" value="{{ d.company }}">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small">Отдел</label>
+              <input type="text" class="form-control form-control-sm" name="department" value="{{ d.department }}">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small">Должность</label>
+              <input type="text" class="form-control form-control-sm" name="title" value="{{ d.title }}">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small">Описание</label>
+              <input type="text" class="form-control form-control-sm" name="description" value="{{ d.description }}">
+            </div>
+          </div>
+
+          <!-- ── Группы ── -->
+          <h6 class="border-bottom pb-1 mb-2">Группы
+            {% if d.groups %}<span class="badge bg-secondary">{{ d.groups|length }}</span>{% endif %}
+          </h6>
+          <div id="wizard-groups-list" class="mb-3">
+            {% if d.groups %}
+              <div class="d-flex flex-wrap gap-1">
+                {% for g in d.groups %}
+                  <span class="group-entry d-inline-flex align-items-center">
+                    <input type="hidden" name="groups" value="{{ g }}">
+                    <span class="badge bg-secondary d-inline-flex align-items-center">
+                      {{ d.group_names[loop.index0] if d.group_names else g.split(',')[0][3:] }}
+                      <button type="button" class="btn-close btn-close-white ms-1" style="font-size:.5em"
+                        onclick="this.closest('.group-entry').remove()" aria-label="Удалить"></button>
+                    </span>
+                  </span>
+                {% endfor %}
+              </div>
+            {% else %}
+              <div class="small text-secondary">Нет групп{% if not d.template_user_dn %} (шаблон не выбран){% endif %}</div>
+            {% endif %}
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary"
+            hx-post="/ad-management/create-user-step2"
+            hx-target="#ad-mgmt-modal"
+            hx-swap="innerHTML"
+            hx-include="closest form"
+          >&larr; Назад</button>
+          <button type="button" class="btn btn-secondary" onclick="closeAdMgmtModal()">Отмена</button>
+          <button type="submit" class="btn btn-primary">Далее &rarr;</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>

@@ -1,10 +1,24 @@
 from __future__ import annotations
 
+from typing import Optional
+
 from fastapi import Request, HTTPException, status
 from fastapi.responses import RedirectResponse, Response
 from .session import read_session
 
 SESSION_MAX_AGE = 8 * 60 * 60
+
+
+def get_ad_config() -> Optional["ADConfig"]:  # noqa: F821
+    """Получить AD-конфиг из настроек. Кэшируется на уровне запроса не нужно —
+    вызов лёгкий (одна строка из SQLite), но выносим в одно место для единообразия.
+    """
+    from .repo import db_session, get_or_create_settings
+    from .services import ad_cfg_from_settings
+
+    with db_session() as db:
+        st = get_or_create_settings(db)
+        return ad_cfg_from_settings(st)
 
 
 def get_current_user(request: Request) -> dict:

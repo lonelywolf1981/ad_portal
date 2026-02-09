@@ -1,0 +1,36 @@
+<div class="modal fade show d-block" tabindex="-1" style="background:rgba(0,0,0,.5)"
+  onclick="if(event.target===this)closeAdMgmtModal()">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Подтверждение удаления</h5>
+        <button type="button" class="btn-close" onclick="closeAdMgmtModal()" aria-label="Close"></button>
+      </div>
+      <form
+        hx-post="/ad-management/delete-user"
+        hx-target="#deleteUserModalResult"
+        hx-swap="innerHTML"
+        hx-on::after-request="handleAdMgmtModalResponse(event)"
+      >
+        <div class="modal-body">
+          {% if error %}
+            <div class="alert alert-danger">{{ error }}</div>
+          {% else %}
+            <p>Вы уверены, что хотите удалить пользователя <strong>{{ user_name }}</strong>?</p>
+            <p class="text-danger">Это действие нельзя отменить!</p>
+            <input type="hidden" name="user_dn" value="{{ user_dn }}">
+          {% endif %}
+          <div id="deleteUserModalResult"></div>
+        </div>
+        <div class="modal-footer">
+          {% if error %}
+            <button type="button" class="btn btn-secondary" onclick="closeAdMgmtModal()">Закрыть</button>
+          {% else %}
+            <button type="button" class="btn btn-secondary" onclick="closeAdMgmtModal()">Отмена</button>
+            <button type="submit" class="btn btn-danger">Удалить пользователя</button>
+          {% endif %}
+        </div>
+      </form>
+    </div>
+  </div>
+</div>

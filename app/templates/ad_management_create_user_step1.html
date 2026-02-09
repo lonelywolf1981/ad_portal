@@ -1,0 +1,49 @@
+<div class="modal fade show d-block" tabindex="-1" style="background:rgba(0,0,0,.5)">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Создание пользователя &mdash; Шаг 1 из 4</h5>
+        <button type="button" class="btn-close" onclick="closeAdMgmtModal()" aria-label="Close"></button>
+      </div>
+      <form
+        hx-post="/ad-management/create-user-step2"
+        hx-target="#ad-mgmt-modal"
+        hx-swap="innerHTML"
+      >
+        <div class="modal-body">
+          <h6 class="mb-1">Выберите организационную единицу (OU)</h6>
+          <p class="text-secondary small mb-2">В выбранной OU будет создан новый пользователь.</p>
+
+          {% if error %}
+            <div class="alert alert-danger small">{{ error }}</div>
+          {% endif %}
+
+          {% if containers %}
+            <input type="text" class="form-control form-control-sm mb-2"
+              placeholder="Фильтр по названию..."
+              oninput="var q=this.value.toLowerCase().trim();document.querySelectorAll('.ou-item-wiz').forEach(function(el){el.classList.toggle('d-none',!(!q||(el.getAttribute('data-name')||'').indexOf(q)!==-1))})">
+            <div class="border rounded bg-body-tertiary" style="max-height:300px;overflow-y:auto">
+              <div class="list-group list-group-flush small">
+                {% for c in containers %}
+                  <label class="list-group-item list-group-item-action d-flex align-items-center py-1 px-2 ou-item-wiz"
+                    data-name="{{ c.label|lower }}">
+                    <input type="radio" name="ou" value="{{ c.dn }}" class="form-check-input me-2 flex-shrink-0" required>
+                    <span style="padding-left:{{ c.depth * 16 }}px">
+                      <i class="bi bi-folder2 me-1 text-warning"></i>{{ c.label }}
+                    </span>
+                  </label>
+                {% endfor %}
+              </div>
+            </div>
+          {% else %}
+            <div class="alert alert-warning small">Не удалось загрузить список OU.</div>
+          {% endif %}
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeAdMgmtModal()">Отмена</button>
+          <button type="submit" class="btn btn-primary" {% if not containers %}disabled{% endif %}>Далее &rarr;</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>

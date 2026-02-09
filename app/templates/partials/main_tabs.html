@@ -18,6 +18,13 @@
           Кто залогинен на хосте
         </button>
       </li>
+      {% if user.get("settings") %}
+      <li class="nav-item" role="presentation">
+        <button class="nav-link" id="tab-ad-mgmt" data-bs-toggle="tab" data-bs-target="#pane-ad-mgmt" type="button" role="tab" aria-controls="pane-ad-mgmt" aria-selected="false">
+          Управление AD
+        </button>
+      </li>
+      {% endif %}
     </ul>
 
     <div class="tab-content pt-3" id="mainTabsContent">
@@ -192,6 +199,38 @@
         <div id="host-logon-results" class="mt-3"></div>
       </div>
 
+      {% if user.get("settings") %}
+      <div
+        class="tab-pane fade"
+        id="pane-ad-mgmt"
+        role="tabpanel"
+        aria-labelledby="tab-ad-mgmt"
+        hx-get="/ad-management"
+        hx-trigger="revealed"
+        hx-target="#pane-ad-mgmt"
+        hx-swap="innerHTML"
+      >
+        <div class="text-secondary small">Загрузка...</div>
+      </div>
+      {% endif %}
+
     </div>
   </div>
 </div>
+
+{% if user.get("settings") %}
+<script>
+  /* Универсальная функция закрытия модалки AD-управления.
+     Определена в main_tabs (server-side render) — всегда доступна для onclick в HTMX-фрагментах. */
+  function closeAdMgmtModal() {
+    var c = document.getElementById('ad-mgmt-modal');
+    if (c) c.innerHTML = '';
+  }
+  function handleAdMgmtModalResponse(ev) {
+    var t = (ev.detail.xhr && ev.detail.xhr.responseText) || '';
+    if (t.indexOf('alert-success') !== -1) {
+      setTimeout(closeAdMgmtModal, 1200);
+    }
+  }
+</script>
+{% endif %}

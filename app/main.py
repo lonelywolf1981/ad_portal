@@ -1,24 +1,67 @@
 from __future__ import annotations
 
 import logging
+from contextlib import asynccontextmanager
+from urllib.parse import urlparse
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from .bootstrap import initialize_application
+
+
+class CSRFMiddleware(BaseHTTPMiddleware):
+    """Защита от CSRF для POST/PUT/DELETE/PATCH запросов.
+
+    HTMX-запросы (заголовок HX-Request) считаются безопасными, т.к. кросс-доменные
+    запросы не могут ставить произвольные заголовки без CORS preflight.
+    Для остальных запросов проверяется совпадение Origin/Referer с Host.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        if request.method in ("POST", "PUT", "DELETE", "PATCH"):
+            # HTMX ставит кастомный заголовок — это уже implicit CSRF-защита.
+            if request.headers.get("HX-Request"):
+                return await call_next(request)
+
+            origin = request.headers.get("origin", "").strip()
+            referer = request.headers.get("referer", "").strip()
+            host = request.headers.get("host", "").strip()
+
+            if not host:
+                return JSONResponse({"detail": "CSRF: отсутствует заголовок Host."}, status_code=403)
+
+            # Проверяем Origin (наиболее надёжный)
+            if origin:
+                parsed = urlparse(origin)
+                origin_host = parsed.netloc or parsed.path
+                if origin_host != host:
+                    return JSONResponse({"detail": "CSRF: несовпадение Origin."}, status_code=403)
+            elif referer:
+                parsed = urlparse(referer)
+                referer_host = parsed.netloc
+                if referer_host and referer_host != host:
+                    return JSONResponse({"detail": "CSRF: несовпадение Referer."}, status_code=403)
+
+        return await call_next(request)
 
 # Настройка логирования - только ошибки
 logging.getLogger("uvicorn.access").setLevel(logging.ERROR)
 
 
-app = FastAPI(title="AD Portal")
-app.mount("/static", StaticFiles(directory="app/static"), name="static")
-
-
-@app.on_event("startup")
-def _startup() -> None:
-    # IMPORTANT: do not run bootstrap at import time (tests, reload, workers)
+@asynccontextmanager
+async def lifespan(application: FastAPI):
+    # Startup: инициализация БД, создание admin-пользователя и т.д.
     initialize_application()
+    yield
+    # Shutdown (если понадобится)
+
+
+app = FastAPI(title="AD Portal", lifespan=lifespan)
+app.add_middleware(CSRFMiddleware)
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 
 # Routers
@@ -29,6 +72,7 @@ from .routers.settings import router as settings_router  # noqa: E402
 from .routers.users import router as users_router  # noqa: E402
 from .routers.hosts import router as hosts_router  # noqa: E402
 from .routers.presence import router as presence_router  # noqa: E402
+from .routers.ad_management import router as ad_management_router  # noqa: E402
 
 app.include_router(health_router)
 app.include_router(auth_router)
@@ -37,3 +81,4 @@ app.include_router(settings_router)
 app.include_router(users_router)
 app.include_router(hosts_router)
 app.include_router(presence_router)
+app.include_router(ad_management_router)
