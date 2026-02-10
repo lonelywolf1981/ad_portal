@@ -1408,6 +1408,8 @@ class ADClient:
                     desc = "Недостаточно прав. Учётная запись bind не имеет разрешений на создание объектов в выбранной OU."
                 elif "entryAlreadyExists" in desc:
                     desc = "Объект с таким именем уже существует в данной OU."
+                elif "constraintViolation" in desc:
+                    desc = f"Логин «{username}» уже используется другим объектом в домене (sAMAccountName должен быть уникальным)."
                 elif "noSuchObject" in desc:
                     desc = "Указанная OU не найдена в AD."
                 elif "unwillingToPerform" in desc:
