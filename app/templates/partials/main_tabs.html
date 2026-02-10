@@ -18,6 +18,13 @@
           Кто залогинен на хосте
         </button>
       </li>
+      {% if ip_phones_ready %}
+      <li class="nav-item" role="presentation">
+        <button class="nav-link" id="tab-ip-phones" data-bs-toggle="tab" data-bs-target="#pane-ip-phones" type="button" role="tab" aria-controls="pane-ip-phones" aria-selected="false">
+          IP-телефоны
+        </button>
+      </li>
+      {% endif %}
       {% if user.get("settings") %}
       <li class="nav-item" role="presentation">
         <button class="nav-link" id="tab-ad-mgmt" data-bs-toggle="tab" data-bs-target="#pane-ad-mgmt" type="button" role="tab" aria-controls="pane-ad-mgmt" aria-selected="false">
@@ -198,6 +205,21 @@
 
         <div id="host-logon-results" class="mt-3"></div>
       </div>
+
+      {% if ip_phones_ready %}
+      <div
+        class="tab-pane fade"
+        id="pane-ip-phones"
+        role="tabpanel"
+        aria-labelledby="tab-ip-phones"
+        hx-get="/ip-phones"
+        hx-trigger="revealed, shown.bs.tab from:#tab-ip-phones"
+        hx-target="#pane-ip-phones"
+        hx-swap="innerHTML"
+      >
+        <div class="text-secondary small">Загрузка...</div>
+      </div>
+      {% endif %}
 
       {% if user.get("settings") %}
       <div

@@ -162,6 +162,47 @@
 
           <hr class="my-4">
 
+          <h2 class="h6 mb-3">IP-телефоны (Asterisk AMI)</h2>
+          <div class="row g-3">
+            <div class="col-12">
+              <div class="form-check">
+                <input
+                  class="form-check-input"
+                  type="checkbox"
+                  id="ip_phones_enabled"
+                  name="ip_phones_enabled"
+                  {% if st.ip_phones_enabled %}checked{% endif %}
+                >
+                <label class="form-check-label" for="ip_phones_enabled">
+                  Включить вкладку IP-телефонов (доступные PJSIP + сопоставление с AD)
+                </label>
+              </div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">AMI host</label>
+              <input class="form-control" name="ip_phones_ami_host" value="{{ st.ip_phones_ami_host or '' }}" placeholder="192.168.66.16">
+            </div>
+            <div class="col-md-2">
+              <label class="form-label fw-semibold">AMI port</label>
+              <input class="form-control" name="ip_phones_ami_port" type="number" min="1" max="65535" value="{{ st.ip_phones_ami_port or 5038 }}">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label fw-semibold">AMI user</label>
+              <input class="form-control" name="ip_phones_ami_user" value="{{ st.ip_phones_ami_user or '' }}" placeholder="webapi">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label fw-semibold">AMI password</label>
+              <input class="form-control" name="ip_phones_ami_password" type="password" placeholder="(не изменять — оставьте пустым)">
+              <div class="form-text">Если оставить пустым — пароль не меняется.</div>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label fw-semibold">AMI timeout (сек.)</label>
+              <input class="form-control" name="ip_phones_ami_timeout_s" type="number" min="1" max="30" value="{{ st.ip_phones_ami_timeout_s or 5 }}">
+            </div>
+          </div>
+
+          <hr class="my-4">
+
           <h2 class="h6 mb-3">Фоновое сканирование сети (последний хост)</h2>
           <div class="row g-3">
             <div class="col-12">
@@ -219,6 +260,11 @@
                     <label class="form-label fw-semibold">Проба порта (мс)</label>
                     <input class="form-control" name="net_scan_probe_timeout_ms" type="number" min="100" max="1500" value="{{ st.net_scan_probe_timeout_ms or 350 }}">
                     <div class="form-text">Быстрая проверка (445/5985/5986/135), чтобы пропускать не-Windows.</div>
+                  </div>
+                  <div class="col-md-4">
+                    <label class="form-label fw-semibold">Глубина графика (дней)</label>
+                    <input class="form-control" name="net_scan_stats_retention_days" type="number" min="7" max="365" value="{{ st.net_scan_stats_retention_days or 30 }}">
+                    <div class="form-text">История для графика статистики: от 7 до 365 дней.</div>
                   </div>
                 </div>
               </details>

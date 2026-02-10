@@ -42,6 +42,20 @@ def ensure_schema() -> None:
         if "host_query_timeout_s" not in cols:
             add("ALTER TABLE app_settings ADD COLUMN host_query_timeout_s INTEGER NOT NULL DEFAULT 60")
 
+        # IP phones / AMI settings
+        if "ip_phones_enabled" not in cols:
+            add("ALTER TABLE app_settings ADD COLUMN ip_phones_enabled BOOLEAN NOT NULL DEFAULT 0")
+        if "ip_phones_ami_host" not in cols:
+            add("ALTER TABLE app_settings ADD COLUMN ip_phones_ami_host VARCHAR(255) NOT NULL DEFAULT ''")
+        if "ip_phones_ami_port" not in cols:
+            add("ALTER TABLE app_settings ADD COLUMN ip_phones_ami_port INTEGER NOT NULL DEFAULT 5038")
+        if "ip_phones_ami_user" not in cols:
+            add("ALTER TABLE app_settings ADD COLUMN ip_phones_ami_user VARCHAR(128) NOT NULL DEFAULT ''")
+        if "ip_phones_ami_password_enc" not in cols:
+            add("ALTER TABLE app_settings ADD COLUMN ip_phones_ami_password_enc VARCHAR(2048) NOT NULL DEFAULT ''")
+        if "ip_phones_ami_timeout_s" not in cols:
+            add("ALTER TABLE app_settings ADD COLUMN ip_phones_ami_timeout_s INTEGER NOT NULL DEFAULT 5")
+
         # Background network scan settings
         if "net_scan_enabled" not in cols:
             add("ALTER TABLE app_settings ADD COLUMN net_scan_enabled BOOLEAN NOT NULL DEFAULT 0")
@@ -57,6 +71,8 @@ def ensure_schema() -> None:
             add("ALTER TABLE app_settings ADD COLUMN net_scan_method_timeout_s INTEGER NOT NULL DEFAULT 20")
         if "net_scan_probe_timeout_ms" not in cols:
             add("ALTER TABLE app_settings ADD COLUMN net_scan_probe_timeout_ms INTEGER NOT NULL DEFAULT 350")
+        if "net_scan_stats_retention_days" not in cols:
+            add("ALTER TABLE app_settings ADD COLUMN net_scan_stats_retention_days INTEGER NOT NULL DEFAULT 30")
 
         if "net_scan_last_run_ts" not in cols:
             add("ALTER TABLE app_settings ADD COLUMN net_scan_last_run_ts DATETIME")

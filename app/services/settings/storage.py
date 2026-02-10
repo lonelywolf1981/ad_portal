@@ -40,6 +40,27 @@ def _migrate_settings_row(st: AppSettings) -> bool:
     if not hasattr(st, 'net_scan_dns_server'):
         st.net_scan_dns_server = ""
         changed = True
+    if not hasattr(st, "net_scan_stats_retention_days"):
+        st.net_scan_stats_retention_days = 30
+        changed = True
+    if not hasattr(st, "ip_phones_enabled"):
+        st.ip_phones_enabled = False
+        changed = True
+    if not hasattr(st, "ip_phones_ami_host"):
+        st.ip_phones_ami_host = ""
+        changed = True
+    if not hasattr(st, "ip_phones_ami_port"):
+        st.ip_phones_ami_port = 5038
+        changed = True
+    if not hasattr(st, "ip_phones_ami_user"):
+        st.ip_phones_ami_user = ""
+        changed = True
+    if not hasattr(st, "ip_phones_ami_password_enc"):
+        st.ip_phones_ami_password_enc = ""
+        changed = True
+    if not hasattr(st, "ip_phones_ami_timeout_s"):
+        st.ip_phones_ami_timeout_s = 5
+        changed = True
 
     return changed
 
@@ -79,6 +100,16 @@ def get_settings(db: Session) -> AppSettingsSchema:
             # UI-only; not stored in DB yet
             "test_host": "",
         },
+        ip_phones={
+            "enabled": bool(getattr(st, "ip_phones_enabled", False)),
+            "ami_host": (getattr(st, "ip_phones_ami_host", "") or "").strip(),
+            "ami_port": int(getattr(st, "ip_phones_ami_port", 5038) or 5038),
+            "ami_user": (getattr(st, "ip_phones_ami_user", "") or "").strip(),
+            "ami_password": decrypt_str(getattr(st, "ip_phones_ami_password_enc", ""))
+            if (getattr(st, "ip_phones_ami_password_enc", "") or "")
+            else "",
+            "ami_timeout_s": int(getattr(st, "ip_phones_ami_timeout_s", 5) or 5),
+        },
         net_scan={
             "enabled": bool(st.net_scan_enabled),
             "cidrs": _split_lines(st.net_scan_cidrs),
@@ -87,6 +118,7 @@ def get_settings(db: Session) -> AppSettingsSchema:
             "concurrency": int(getattr(st, "net_scan_concurrency", 64) or 64),
             "method_timeout_s": int(getattr(st, "net_scan_method_timeout_s", 20) or 20),
             "probe_timeout_ms": int(getattr(st, "net_scan_probe_timeout_ms", 350) or 350),
+            "stats_retention_days": int(getattr(st, "net_scan_stats_retention_days", 30) or 30),
         },
     )
 
@@ -139,6 +171,15 @@ def save_settings(db: Session, data: AppSettingsSchema, *, keep_secrets_if_blank
     if data.host_query.password or not keep_secrets_if_blank:
         st.host_query_password_enc = encrypt_str(data.host_query.password or "")
 
+    # IP phones
+    st.ip_phones_enabled = bool(data.ip_phones.enabled)
+    st.ip_phones_ami_host = (data.ip_phones.ami_host or "").strip()
+    st.ip_phones_ami_port = int(data.ip_phones.ami_port or 5038)
+    st.ip_phones_ami_user = (data.ip_phones.ami_user or "").strip()
+    st.ip_phones_ami_timeout_s = int(data.ip_phones.ami_timeout_s or 5)
+    if data.ip_phones.ami_password or not keep_secrets_if_blank:
+        st.ip_phones_ami_password_enc = encrypt_str(data.ip_phones.ami_password or "")
+
     # Net scan
     st.net_scan_enabled = bool(data.net_scan.enabled)
     st.net_scan_cidrs = "\n".join(data.net_scan.cidrs or [])
@@ -147,6 +188,7 @@ def save_settings(db: Session, data: AppSettingsSchema, *, keep_secrets_if_blank
     st.net_scan_concurrency = int(data.net_scan.concurrency or 64)
     setattr(st, "net_scan_method_timeout_s", int(data.net_scan.method_timeout_s or 20))
     setattr(st, "net_scan_probe_timeout_ms", int(data.net_scan.probe_timeout_ms or 350))
+    setattr(st, "net_scan_stats_retention_days", int(data.net_scan.stats_retention_days or 30))
 
     st.updated_at = datetime.utcnow()
     db.commit()

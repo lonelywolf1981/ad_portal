@@ -1,0 +1,17 @@
+<div class="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-2 mb-2">
+  <h2 class="h6 mb-0">IP-телефоны (PJSIP Avail + AD)</h2>
+</div>
+
+<div class="small text-secondary">
+  Отображаются только доступные 4-значные номера из Asterisk AMI с сопоставлением по AD атрибуту <code>ipPhone</code>.
+</div>
+
+<div
+  id="ip-phones-results"
+  class="mt-3"
+  hx-get="/ip-phones/avail-with-ad"
+  hx-trigger="load"
+  hx-swap="outerHTML"
+>
+  <div class="text-secondary small">Загрузка...</div>
+</div>

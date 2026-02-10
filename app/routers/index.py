@@ -2,16 +2,18 @@ from __future__ import annotations
 
 import re
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import logging
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
+from sqlalchemy import select
 
 from ..deps import require_initialized_or_redirect
 from ..repo import db_session, get_or_create_settings
 from ..services.ad import ad_cfg_from_settings
 from ..ad import ADClient
+from ..models import ScanStatsHistory
 from ..timezone_utils import format_ru_local
 from ..webui import templates
 
@@ -64,19 +66,30 @@ def index(request: Request):
     net_scan_is_running = False
     net_scan_enabled = False
     net_scan_ready = False
+    ip_phones_ready = False
 
     # AD stats (placeholders by default; page must not fail if AD is unreachable)
     ad_users_total: int | str = "—"
     ad_users_enabled: int | str = "—"
     online_users: int | str = "—"
+    stats_history_points: list[dict] = []
+    stats_retention_days = 30
+    stats_scans_total = 0
 
     try:
         with db_session() as db:
             st = get_or_create_settings(db)
+            stats_retention_days = max(7, min(365, int(getattr(st, "net_scan_stats_retention_days", 30) or 30)))
 
             net_scan_enabled = bool(getattr(st, "net_scan_enabled", False))
             cidrs_txt = (getattr(st, "net_scan_cidrs", "") or "").strip()
             net_scan_ready = bool(net_scan_enabled and cidrs_txt)
+            ip_phones_ready = bool(
+                bool(getattr(st, "ip_phones_enabled", False))
+                and bool((getattr(st, "ip_phones_ami_host", "") or "").strip())
+                and bool((getattr(st, "ip_phones_ami_user", "") or "").strip())
+                and bool((getattr(st, "ip_phones_ami_password_enc", "") or "").strip())
+            )
 
             dt = getattr(st, "net_scan_last_run_ts", None)
             if dt:
@@ -96,10 +109,39 @@ def index(request: Request):
             if m:
                 online_users = int(m.group(1))
 
-            # AD totals (total + enabled)
-            cfg = ad_cfg_from_settings(st)
-            if cfg:
-                ad_users_total, ad_users_enabled = _get_ad_stats_cached(cfg)
+            hist_rows = db.scalars(
+                select(ScanStatsHistory)
+                .where(ScanStatsHistory.ts >= (datetime.utcnow() - timedelta(days=stats_retention_days)))
+                .order_by(ScanStatsHistory.ts.asc())
+            ).all()
+            if hist_rows:
+                stats_scans_total = len(hist_rows)
+                last = hist_rows[-1]
+                if last.users_total is not None:
+                    ad_users_total = int(last.users_total)
+                if last.users_enabled is not None:
+                    ad_users_enabled = int(last.users_enabled)
+                if last.users_online is not None:
+                    online_users = int(last.users_online)
+
+                stats_history_points = [
+                    {
+                        "ts": (
+                            r.ts.replace(tzinfo=timezone.utc).isoformat(timespec="seconds")
+                            if isinstance(r.ts, datetime)
+                            else str(r.ts)
+                        ),
+                        "total": (int(r.users_total) if r.users_total is not None else None),
+                        "enabled": (int(r.users_enabled) if r.users_enabled is not None else None),
+                        "online": (int(r.users_online) if r.users_online is not None else None),
+                    }
+                    for r in hist_rows
+                ]
+            else:
+                # Fallback for initial period with no history yet.
+                cfg = ad_cfg_from_settings(st)
+                if cfg:
+                    ad_users_total, ad_users_enabled = _get_ad_stats_cached(cfg)
     except Exception:
         # Do not fail the main page if settings schema is missing or AD is down.
         log.warning("Ошибка при подготовке данных главной страницы", exc_info=True)
@@ -115,9 +157,13 @@ def index(request: Request):
             "net_scan_is_running": net_scan_is_running,
             "net_scan_enabled": net_scan_enabled,
             "net_scan_ready": net_scan_ready,
+            "ip_phones_ready": ip_phones_ready,
             "ad_users_total": ad_users_total,
             "ad_users_enabled": ad_users_enabled,
             "online_users": online_users,
+            "stats_history_points": stats_history_points,
+            "stats_retention_days": stats_retention_days,
+            "stats_scans_total": stats_scans_total,
         },
     )
 

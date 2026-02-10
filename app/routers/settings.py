@@ -123,6 +123,14 @@ def _coerce_settings_payload(payload: dict) -> object:
             "password": payload.get("host_query_password", ""),
             "timeout_s": int(payload.get("host_query_timeout_s") or 60),
         },
+        "ip_phones": {
+            "enabled": _truthy_flag(payload.get("ip_phones_enabled")),
+            "ami_host": payload.get("ip_phones_ami_host", ""),
+            "ami_port": int(payload.get("ip_phones_ami_port") or 5038),
+            "ami_user": payload.get("ip_phones_ami_user", ""),
+            "ami_password": payload.get("ip_phones_ami_password", ""),
+            "ami_timeout_s": int(payload.get("ip_phones_ami_timeout_s") or 5),
+        },
         "net_scan": {
             "enabled": _truthy_flag(payload.get("net_scan_enabled")),
             "cidrs": _parse_cidrs(payload.get("net_scan_cidrs", "")),
@@ -131,6 +139,7 @@ def _coerce_settings_payload(payload: dict) -> object:
             "concurrency": int(payload.get("net_scan_concurrency") or 64),
             "method_timeout_s": int(payload.get("net_scan_method_timeout_s") or 20),
             "probe_timeout_ms": int(payload.get("net_scan_probe_timeout_ms") or 350),
+            "stats_retention_days": int(payload.get("net_scan_stats_retention_days") or 30),
         },
     }
 
@@ -237,6 +246,7 @@ def _effective_settings_from_form(db, form: dict) -> AppSettingsSchema:
         "auth_mode": (form.get("auth_mode") or cur.auth.mode),
         "ad": cur.ad.model_dump(),
         "host_query": cur.host_query.model_dump(),
+        "ip_phones": cur.ip_phones.model_dump(),
         "net_scan": cur.net_scan.model_dump(),
     }
 
@@ -265,9 +275,31 @@ def _effective_settings_from_form(db, form: dict) -> AppSettingsSchema:
         try:
             patch["host_query"]["timeout_s"] = int(form.get("host_query_timeout_s") or patch["host_query"]["timeout_s"])
         except Exception:
-            log.warning("Не удалось вычислить статистику последнего net-scan для страницы настроек", exc_info=True)
+            log.warning("Некорректное значение host_query_timeout_s", exc_info=True)
     if form.get("host_query_test_host") is not None:
         patch["host_query"]["test_host"] = (form.get("host_query_test_host") or "").strip()
+
+    # IP phones
+    if "ip_phones_enabled" in form:
+        patch["ip_phones"]["enabled"] = bool(form.get("ip_phones_enabled"))
+    if form.get("ip_phones_ami_host") is not None:
+        patch["ip_phones"]["ami_host"] = (form.get("ip_phones_ami_host") or "").strip()
+    if form.get("ip_phones_ami_user") is not None:
+        patch["ip_phones"]["ami_user"] = (form.get("ip_phones_ami_user") or "").strip()
+    if (form.get("ip_phones_ami_password") or "").strip():
+        patch["ip_phones"]["ami_password"] = form.get("ip_phones_ami_password")
+    if form.get("ip_phones_ami_port") is not None:
+        try:
+            patch["ip_phones"]["ami_port"] = int(form.get("ip_phones_ami_port") or patch["ip_phones"]["ami_port"])
+        except Exception:
+            log.warning("Некорректное значение ip_phones_ami_port", exc_info=True)
+    if form.get("ip_phones_ami_timeout_s") is not None:
+        try:
+            patch["ip_phones"]["ami_timeout_s"] = int(
+                form.get("ip_phones_ami_timeout_s") or patch["ip_phones"]["ami_timeout_s"]
+            )
+        except Exception:
+            log.warning("Некорректное значение ip_phones_ami_timeout_s", exc_info=True)
 
     # Net scan
     if "net_scan_enabled" in form:
@@ -276,6 +308,13 @@ def _effective_settings_from_form(db, form: dict) -> AppSettingsSchema:
         patch["net_scan"]["cidrs"] = _parse_cidrs(form.get("net_scan_cidrs") or "")
     if form.get("net_scan_dns_server") is not None:
         patch["net_scan"]["dns_server"] = (form.get("net_scan_dns_server") or "").strip()
+    if form.get("net_scan_stats_retention_days") is not None:
+        try:
+            patch["net_scan"]["stats_retention_days"] = int(
+                form.get("net_scan_stats_retention_days") or patch["net_scan"]["stats_retention_days"]
+            )
+        except Exception:
+            log.warning("Некорректное значение net_scan_stats_retention_days", exc_info=True)
 
     return AppSettingsSchema.model_validate(patch)
 
@@ -497,6 +536,12 @@ def settings_save(
     host_query_username: str = Form(""),
     host_query_password: str = Form(""),
     host_query_timeout_s: int = Form(60),
+    ip_phones_enabled: str = Form(""),
+    ip_phones_ami_host: str = Form(""),
+    ip_phones_ami_port: int = Form(5038),
+    ip_phones_ami_user: str = Form(""),
+    ip_phones_ami_password: str = Form(""),
+    ip_phones_ami_timeout_s: int = Form(5),
     net_scan_enabled: str = Form(""),
     net_scan_cidrs: str = Form(""),
     net_scan_dns_server: str = Form(""),
@@ -504,6 +549,7 @@ def settings_save(
     net_scan_concurrency: int = Form(64),
     net_scan_method_timeout_s: int = Form(20),
     net_scan_probe_timeout_ms: int = Form(350),
+    net_scan_stats_retention_days: int = Form(30),
     allowed_app_group_dns: list[str] = Form([]),
     allowed_settings_group_dns: list[str] = Form([]),
 ):
@@ -540,6 +586,12 @@ def settings_save(
                     "host_query_username": host_query_username,
                     "host_query_password": host_query_password,
                     "host_query_timeout_s": host_query_timeout_s,
+                    "ip_phones_enabled": ip_phones_enabled,
+                    "ip_phones_ami_host": ip_phones_ami_host,
+                    "ip_phones_ami_port": ip_phones_ami_port,
+                    "ip_phones_ami_user": ip_phones_ami_user,
+                    "ip_phones_ami_password": ip_phones_ami_password,
+                    "ip_phones_ami_timeout_s": ip_phones_ami_timeout_s,
                     "net_scan_enabled": net_scan_enabled,
                     "net_scan_cidrs": net_scan_cidrs,
                     "net_scan_dns_server": net_scan_dns_server,
@@ -547,6 +599,7 @@ def settings_save(
                     "net_scan_concurrency": net_scan_concurrency,
                     "net_scan_method_timeout_s": net_scan_method_timeout_s,
                     "net_scan_probe_timeout_ms": net_scan_probe_timeout_ms,
+                    "net_scan_stats_retention_days": net_scan_stats_retention_days,
                     "allowed_app_group_dns": allowed_app_group_dns,
                     "allowed_settings_group_dns": allowed_settings_group_dns,
                 },

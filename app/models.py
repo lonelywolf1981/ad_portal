@@ -61,6 +61,14 @@ class AppSettings(Base):
     host_query_password_enc: Mapped[str] = mapped_column(String(2048), default="", nullable=False)
     host_query_timeout_s: Mapped[int] = mapped_column(Integer, default=60, nullable=False)
 
+    # IP phones / Asterisk AMI settings
+    ip_phones_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    ip_phones_ami_host: Mapped[str] = mapped_column(String(255), default="", nullable=False)
+    ip_phones_ami_port: Mapped[int] = mapped_column(Integer, default=5038, nullable=False)
+    ip_phones_ami_user: Mapped[str] = mapped_column(String(128), default="", nullable=False)
+    ip_phones_ami_password_enc: Mapped[str] = mapped_column(String(2048), default="", nullable=False)
+    ip_phones_ami_timeout_s: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
+
     # Network scan settings (periodic user presence detection)
     net_scan_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     net_scan_cidrs: Mapped[str] = mapped_column(Text, default="", nullable=False)  # newline-separated CIDR list
@@ -70,6 +78,7 @@ class AppSettings(Base):
     # Per-method timeout used by background scan (WinRM/WMI/SMB). Separate from host_query_timeout_s.
     net_scan_method_timeout_s: Mapped[int] = mapped_column(Integer, default=20, nullable=False)
     net_scan_probe_timeout_ms: Mapped[int] = mapped_column(Integer, default=350, nullable=False)
+    net_scan_stats_retention_days: Mapped[int] = mapped_column(Integer, default=30, nullable=False)
 
     net_scan_last_run_ts: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     net_scan_last_summary: Mapped[str] = mapped_column(String(512), default="", nullable=False)
@@ -119,3 +128,14 @@ class HostUserMap(Base):
     ip: Mapped[str] = mapped_column(String(64), default="", nullable=False)
     method: Mapped[str] = mapped_column(String(32), default="", nullable=False)
     last_seen_ts: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class ScanStatsHistory(Base):
+    __tablename__ = "scan_stats_history"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    ts: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+    users_total: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    users_enabled: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    users_online: Mapped[int | None] = mapped_column(Integer, nullable=True)
