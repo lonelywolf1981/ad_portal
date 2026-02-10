@@ -13,7 +13,7 @@ from .utils.numbers import clamp_int
 
 
 # If a scan crashes mid-flight, allow new runs after this TTL.
-_LOCK_STALE_HOURS = 6
+_LOCK_STALE_HOURS = 1
 
 
 def _utcnow() -> datetime:

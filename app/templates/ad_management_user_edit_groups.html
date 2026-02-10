@@ -22,7 +22,6 @@
               hx-vals='{"user_dn":"{{ user_dn|e }}","group_dn":"{{ g.dn|e }}"}'
               hx-target="#user-edit-groups-section"
               hx-swap="outerHTML"
-              hx-confirm="Удалить пользователя из группы «{{ g.name|e }}»?"
               aria-label="Удалить"></button>
           </span>
         {% endfor %}

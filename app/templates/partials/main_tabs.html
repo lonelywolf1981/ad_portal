@@ -232,6 +232,14 @@
       setTimeout(closeAdMgmtModal, 1200);
     }
   }
+  function addMemberToGroup(memberDn) {
+    var section = document.getElementById('group-members-section');
+    if (!section) return;
+    var groupDn = section.dataset.groupDn;
+    htmx.ajax('POST', '/ad-management/group-add-member',
+      {target: '#group-members-section', swap: 'outerHTML',
+       values: {group_dn: groupDn, member_dn: memberDn}});
+  }
   function editUserAddGroup(groupDn) {
     var section = document.getElementById('user-edit-groups-section');
     if (!section) return;

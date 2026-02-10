@@ -10,7 +10,7 @@
         hx-post="/ad-management/update-user"
         hx-target="#userEditModalResult"
         hx-swap="innerHTML"
-        hx-on::after-request="handleAdMgmtModalResponse(event)"
+        hx-on::after-request="if(event.detail.elt===this)handleAdMgmtModalResponse(event)"
       >
         <div class="modal-body">
           {% if error %}

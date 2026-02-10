@@ -1,0 +1,62 @@
+<!-- HTMX-фрагмент: список участников группы -->
+<div id="group-members-section" data-group-dn="{{ group_dn }}">
+  {% if error %}
+    <div class="alert alert-danger small py-1 px-2 mb-2">{{ error }}</div>
+  {% endif %}
+  {% if success %}
+    <div class="alert alert-success small py-1 px-2 mb-2">{{ success }}</div>
+  {% endif %}
+
+  <h6 class="border-bottom pb-1 mb-2">Участники
+    {% if members_users or members_groups %}
+      <span class="badge bg-secondary">{{ (members_users|length) + (members_groups|length) }}</span>
+    {% endif %}
+  </h6>
+
+  <div style="max-height:400px;overflow-y:auto">
+    {% if members_groups %}
+      <div class="small text-secondary mb-1">Группы</div>
+      {% for g in members_groups %}
+        <div class="d-flex justify-content-between align-items-center gap-2 py-1 border-bottom">
+          <div class="text-truncate">
+            <i class="bi bi-people-fill text-primary me-1"></i>
+            <span class="fw-semibold">{{ g.name }}</span>
+          </div>
+          <button type="button" class="btn btn-outline-danger btn-sm flex-shrink-0"
+            hx-post="/ad-management/group-remove-member"
+            hx-vals='{"group_dn":"{{ group_dn|e }}","member_dn":"{{ g.dn|e }}"}'
+            hx-target="#group-members-section"
+            hx-swap="outerHTML"
+            hx-confirm="Удалить группу «{{ g.name|e }}» из состава?"
+          >&times;</button>
+        </div>
+      {% endfor %}
+    {% endif %}
+
+    {% if members_users %}
+      <div class="small text-secondary mb-1 {% if members_groups %}mt-2{% endif %}">Пользователи</div>
+      {% for u in members_users %}
+        <div class="d-flex justify-content-between align-items-center gap-2 py-1 border-bottom">
+          <div class="text-truncate">
+            <i class="bi bi-person-fill text-secondary me-1"></i>
+            <span class="fw-semibold">{{ u.display or u.sam }}</span>
+            {% if u.sam and (u.display or u.sam) != u.sam %}
+              <span class="text-secondary small">({{ u.sam }})</span>
+            {% endif %}
+          </div>
+          <button type="button" class="btn btn-outline-danger btn-sm flex-shrink-0"
+            hx-post="/ad-management/group-remove-member"
+            hx-vals='{"group_dn":"{{ group_dn|e }}","member_dn":"{{ u.dn|e }}"}'
+            hx-target="#group-members-section"
+            hx-swap="outerHTML"
+            hx-confirm="Удалить «{{ (u.display or u.sam)|e }}» из группы?"
+          >&times;</button>
+        </div>
+      {% endfor %}
+    {% endif %}
+
+    {% if not members_users and not members_groups %}
+      <div class="small text-secondary">Группа не содержит участников.</div>
+    {% endif %}
+  </div>
+</div>

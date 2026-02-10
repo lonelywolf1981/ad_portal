@@ -37,10 +37,11 @@ _SYSTEM_CONTAINERS = {
 }
 
 
-def _build_ou_tree(containers: list[dict]) -> list[dict]:
+def _build_ou_tree(containers: list[dict], *, allow_users_container: bool = False) -> list[dict]:
     """Отфильтровать системные контейнеры и отсортировать для отображения деревом.
 
     Возвращает список с полем 'depth' (уровень вложенности) и 'label' (отступ + имя).
+    allow_users_container — включить контейнер CN=Users (для создания групп).
     """
     filtered = []
     for c in containers:
@@ -48,9 +49,13 @@ def _build_ou_tree(containers: list[dict]) -> list[dict]:
         # Пропускаем системные контейнеры
         if name_lower in _SYSTEM_CONTAINERS:
             continue
-        # Пропускаем контейнеры типа container (оставляем только OU)
+        # Пропускаем контейнеры типа container (оставляем только OU),
+        # но CN=Users можно разрешить отдельно
         if c.get("type") == "container":
-            continue
+            if allow_users_container and name_lower == "users":
+                pass  # разрешаем
+            else:
+                continue
         filtered.append(c)
 
     # Считаем глубину по количеству компонентов DN
@@ -600,6 +605,14 @@ def ad_management_remove_user_from_group(
     return htmx_alert(ui_result(ok, msg), status_code=200)
 
 
+def _get_group_members(client: ADClient, group_dn: str) -> tuple[list[dict], list[dict]]:
+    """Получить участников группы: (users, groups)."""
+    ok, _msg, members = client.get_group_members(group_dn)
+    if not ok:
+        return [], []
+    return members.get("users", []), members.get("groups", [])
+
+
 @router.get("/ad-management/group-details", response_class=HTMLResponse)
 def ad_management_group_details(request: Request, id: str = ""):
     """Display detailed information about an AD group and provide editing capabilities."""
@@ -622,36 +635,179 @@ def ad_management_group_details(request: Request, id: str = ""):
     cfg, resp = _mgmt_cfg_or_alert(
         request,
         template_name="ad_management_group_edit.html",
-        empty_ctx={"group_data": {}, "members": []},
+        empty_ctx={"group_data": {}},
     )
     if resp is not None:
         return resp
 
     client = ADClient(cfg)  # type: ignore[arg-type]
-    
-    # Get group info
+
     group_info = {
         "dn": dn,
         "id": id,
-        "name": dn.split(',')[0][3:],  # Extract CN from DN
-        "description": "",  # Will need to get this separately if needed
+        "name": dn_first_component_value(dn),
     }
-    
-    # Get group members
-    ok, msg, members = client.get_group_members(dn)
-    if not ok:
-        return templates.TemplateResponse(
-            "ad_management_group_edit.html",
-            {"request": request, "group_data": group_info, "members": [], "error": msg},
-        )
+
+    members_users, members_groups = _get_group_members(client, dn)
 
     return templates.TemplateResponse(
         "ad_management_group_edit.html",
         {
-            "request": request, 
-            "group_data": group_info, 
-            "members": members.get("users", []), 
-            "error": ""
+            "request": request,
+            "group_data": group_info,
+            "group_dn": dn,
+            "members_users": members_users,
+            "members_groups": members_groups,
+            "error": "",
+            "success": "",
+        },
+    )
+
+
+@router.post("/ad-management/group-remove-member", response_class=HTMLResponse)
+def group_remove_member(
+    request: Request,
+    group_dn: str = Form(...),
+    member_dn: str = Form(...),
+):
+    """Удалить участника (пользователя или группу) из группы и вернуть обновлённый фрагмент."""
+    auth = require_initialized_or_redirect(request)
+    if not isinstance(auth, dict):
+        return auth
+
+    guard = _admin_guard(request, auth)
+    if guard:
+        return guard
+
+    cfg, resp = _mgmt_cfg_or_alert(
+        request, template_name="ad_management_group_members.html", empty_ctx={}
+    )
+    if resp is not None:
+        return resp
+
+    client = ADClient(cfg)  # type: ignore[arg-type]
+    ok, msg = client.remove_user_from_group(member_dn, group_dn)
+    _audit_ad_op(request, auth, "remove_from_group", f"{member_dn} <- {group_dn}", ok, msg)
+
+    error = "" if ok else (msg or "Ошибка удаления из группы.")
+    success = "Участник удалён из группы." if ok else ""
+    members_users, members_groups = _get_group_members(client, group_dn)
+
+    return templates.TemplateResponse(
+        "ad_management_group_members.html",
+        {
+            "request": request,
+            "group_dn": group_dn,
+            "members_users": members_users,
+            "members_groups": members_groups,
+            "error": error,
+            "success": success,
+        },
+    )
+
+
+@router.post("/ad-management/group-add-member", response_class=HTMLResponse)
+def group_add_member(
+    request: Request,
+    group_dn: str = Form(...),
+    member_dn: str = Form(...),
+):
+    """Добавить участника (пользователя или группу) в группу и вернуть обновлённый фрагмент."""
+    auth = require_initialized_or_redirect(request)
+    if not isinstance(auth, dict):
+        return auth
+
+    guard = _admin_guard(request, auth)
+    if guard:
+        return guard
+
+    cfg, resp = _mgmt_cfg_or_alert(
+        request, template_name="ad_management_group_members.html", empty_ctx={}
+    )
+    if resp is not None:
+        return resp
+
+    client = ADClient(cfg)  # type: ignore[arg-type]
+    ok, msg = client.add_user_to_group(member_dn, group_dn)
+    _audit_ad_op(request, auth, "add_to_group", f"{member_dn} -> {group_dn}", ok, msg)
+
+    error = "" if ok else (msg or "Ошибка добавления в группу.")
+    success = "Участник добавлен в группу." if ok else ""
+    members_users, members_groups = _get_group_members(client, group_dn)
+
+    return templates.TemplateResponse(
+        "ad_management_group_members.html",
+        {
+            "request": request,
+            "group_dn": group_dn,
+            "members_users": members_users,
+            "members_groups": members_groups,
+            "error": error,
+            "success": success,
+        },
+    )
+
+
+@router.get("/ad-management/search-for-group-members", response_class=HTMLResponse)
+def search_for_group_members(request: Request, term: str = ""):
+    """Поиск пользователей и групп для добавления в группу (HTMX-фрагмент)."""
+    auth = require_initialized_or_redirect(request)
+    if not isinstance(auth, dict):
+        return auth
+
+    guard = _admin_guard(request, auth)
+    if guard:
+        return guard
+
+    tmpl = "ad_management_group_search_members.html"
+
+    if not term or len(term.strip()) < 2:
+        return templates.TemplateResponse(
+            tmpl,
+            {"request": request, "found_users": [], "found_groups": [], "error": "", "no_results": False},
+        )
+
+    cfg, resp = _mgmt_cfg_or_alert(request, template_name=tmpl, empty_ctx={})
+    if resp is not None:
+        return resp
+
+    client = ADClient(cfg)  # type: ignore[arg-type]
+
+    # Поиск пользователей
+    found_users: list[dict] = []
+    ok_u, _msg_u, items_u = client.search_users(term.strip(), limit=10)
+    if ok_u:
+        for it in items_u:
+            found_users.append({
+                "dn": it.get("dn", ""),
+                "fio": it.get("fio", ""),
+                "login": it.get("login", ""),
+            })
+
+    # Поиск групп
+    found_groups: list[dict] = []
+    ok_g, _msg_g, items_g = client.search_groups(term.strip(), limit=10)
+    if ok_g:
+        for it in items_g:
+            found_groups.append({
+                "dn": it.get("dn", ""),
+                "name": it.get("name", ""),
+                "description": it.get("description", ""),
+            })
+
+    no_results = not found_users and not found_groups
+    error = ""
+    if not ok_u and not ok_g:
+        error = "Ошибка поиска в AD."
+
+    return templates.TemplateResponse(
+        tmpl,
+        {
+            "request": request,
+            "found_users": found_users,
+            "found_groups": found_groups,
+            "error": error,
+            "no_results": no_results,
         },
     )
 
@@ -1038,7 +1194,7 @@ def ad_management_create_group_modal(request: Request):
     if not ok:
         containers = []
     else:
-        containers = _build_ou_tree(containers)
+        containers = _build_ou_tree(containers, allow_users_container=True)
 
     return templates.TemplateResponse(
         "ad_management_create_group_modal.html",
