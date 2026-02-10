@@ -1,0 +1,47 @@
+<!-- HTMX-фрагмент: секция групп в модалке редактирования пользователя -->
+<div id="user-edit-groups-section" data-user-dn="{{ user_dn }}">
+  {% if error %}
+    <div class="alert alert-danger small py-1 px-2 mb-2">{{ error }}</div>
+  {% endif %}
+  {% if success %}
+    <div class="alert alert-success small py-1 px-2 mb-2">{{ success }}</div>
+  {% endif %}
+
+  <h6 class="border-bottom pb-1 mb-2">Группы
+    {% if groups %}<span class="badge bg-secondary">{{ groups|length }}</span>{% endif %}
+  </h6>
+
+  <div class="mb-3" style="max-height:300px;overflow-y:auto">
+    {% if groups %}
+      <div class="d-flex flex-wrap gap-1">
+        {% for g in groups %}
+          <span class="badge bg-secondary d-inline-flex align-items-center">
+            {{ g.name }}
+            <button type="button" class="btn-close btn-close-white ms-1" style="font-size:.5em"
+              hx-post="/ad-management/edit-user-remove-group"
+              hx-vals='{"user_dn":"{{ user_dn|e }}","group_dn":"{{ g.dn|e }}"}'
+              hx-target="#user-edit-groups-section"
+              hx-swap="outerHTML"
+              hx-confirm="Удалить пользователя из группы «{{ g.name|e }}»?"
+              aria-label="Удалить"></button>
+          </span>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="small text-secondary">Пользователь не состоит в группах</div>
+    {% endif %}
+  </div>
+
+  <div class="mt-2">
+    <div class="input-group input-group-sm">
+      <input type="text" class="form-control" placeholder="Поиск группы в AD..."
+        hx-get="/ad-management/wizard-search-groups"
+        hx-vals='{"mode":"edit"}'
+        hx-target="#user-edit-groups-search-results"
+        hx-swap="innerHTML"
+        hx-trigger="keyup changed delay:400ms"
+        name="term" autocomplete="off">
+    </div>
+    <div id="user-edit-groups-search-results" class="mt-1"></div>
+  </div>
+</div>

@@ -1,0 +1,39 @@
+<h2 class="h6 mb-3">Управление пользователями AD</h2>
+
+<div id="ad-mgmt-users-alert" class="mb-2"></div>
+
+<div class="row mb-3">
+  <div class="col-md-6">
+    <form
+      hx-get="/ad-management/users"
+      hx-target="#ad-users-results"
+      hx-swap="innerHTML"
+      hx-trigger="submit, keyup changed delay:350ms from:input[name='q']"
+    >
+      <div class="input-group">
+        <input
+          type="text"
+          class="form-control"
+          name="q"
+          placeholder="Поиск пользователей (имя, фамилия, логин)"
+          autocomplete="off"
+        >
+        <button class="btn btn-outline-primary" type="submit">Найти</button>
+      </div>
+    </form>
+  </div>
+  <div class="col-md-6">
+    <button 
+      type="button" 
+      class="btn btn-outline-primary btn-sm"
+      hx-get="/ad-management/create-user-wizard"
+      hx-target="#ad-mgmt-modal"
+      hx-swap="innerHTML"
+      hx-trigger="click"
+    >Создать пользователя</button>
+  </div>
+</div>
+
+<div id="ad-users-results">
+  <!-- Results will be loaded here -->
+</div>

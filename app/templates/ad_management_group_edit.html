@@ -1,0 +1,103 @@
+<!-- Modal for editing group -->
+<div class="modal fade show d-block" tabindex="-1" id="groupEditModal">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Редактирование группы: {{ group_data.name }}</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+
+      <div class="modal-body">
+        {% if error %}
+          <div class="alert alert-danger">{{ error }}</div>
+        {% endif %}
+
+        <div id="groupEditModalResult" class="mb-2"></div>
+
+        <div class="mb-3">
+          <label class="form-label">Имя группы</label>
+          <input type="text" class="form-control" value="{{ group_data.name }}" readonly>
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label">Distinguished Name</label>
+          <input type="text" class="form-control" value="{{ group_data.dn }}" readonly>
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label">Участники (пользователи)</label>
+          <div class="border rounded p-2 bg-body-tertiary" style="max-height: 260px; overflow:auto;">
+            {% if members %}
+              {% for member in members %}
+                <div class="d-flex justify-content-between align-items-center gap-2 py-1 border-bottom">
+                  <div class="text-truncate">
+                    <span class="fw-semibold">{{ member.display or member.sam }}</span>
+                    {% if member.sam and (member.display or member.sam) != member.sam %}
+                      <span class="text-secondary small">({{ member.sam }})</span>
+                    {% endif %}
+                  </div>
+
+                  <form
+                    class="flex-shrink-0"
+                    hx-post="/ad-management/remove-user-from-group"
+                    hx-target="#groupEditModalResult"
+                    hx-swap="innerHTML"
+                    hx-confirm="Удалить пользователя из группы?"
+                  >
+                    <input type="hidden" name="user_dn" value="{{ member.dn }}">
+                    <input type="hidden" name="group_dn" value="{{ group_data.dn }}">
+                    <button type="submit" class="btn btn-outline-danger btn-sm">Удалить</button>
+                  </form>
+                </div>
+              {% endfor %}
+            {% else %}
+              <span class="text-secondary small">Группа не содержит участников.</span>
+            {% endif %}
+          </div>
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label">Добавить пользователей в группу</label>
+          <div class="small text-secondary mb-2">Введите минимум 2 символа. Можно выбирать несколько пользователей.</div>
+
+          <div class="input-group">
+            <input
+              type="text"
+              class="form-control"
+              name="term"
+              placeholder="Поиск пользователя (имя, фамилия, логин)"
+              autocomplete="off"
+              hx-get="/ad-management/search-users-for-group"
+              hx-target="#addUserResults"
+              hx-swap="innerHTML"
+              hx-trigger="keyup changed delay:350ms"
+              hx-include="#groupDnForSearch"
+            >
+            <span class="input-group-text">
+              <span class="spinner-border spinner-border-sm text-secondary htmx-indicator" role="status" aria-hidden="true"></span>
+            </span>
+          </div>
+          <input type="hidden" id="groupDnForSearch" name="group_dn" value="{{ group_data.dn }}">
+
+          <div id="addUserResults" class="border rounded mt-2 p-2 bg-body-tertiary" style="max-height: 260px; overflow:auto;"></div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // Initialize modal when loaded
+  const modalElement = document.getElementById('groupEditModal');
+  const bsModal = new bootstrap.Modal(modalElement);
+  bsModal.show();
+
+  // Handle modal close
+  modalElement.addEventListener('hidden.bs.modal', function () {
+    this.remove();
+  });
+</script>

@@ -1,0 +1,159 @@
+<div class="modal fade show d-block" tabindex="-1" style="background:rgba(0,0,0,.5)">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Создание пользователя &mdash; Шаг 4 из 4</h5>
+        <button type="button" class="btn-close" onclick="closeAdMgmtModal()" aria-label="Close"></button>
+      </div>
+      <form id="wizard-step4-form">
+        <!-- Скрытые поля, не показываемые в таблице -->
+        <input type="hidden" name="ou" value="{{ d.ou }}">
+        <input type="hidden" name="template_user_dn" value="{{ d.template_user_dn }}">
+        <input type="hidden" name="password" value="{{ d.password }}">
+        <input type="hidden" name="password_confirm" value="{{ d.password_confirm }}">
+        {% if d.must_change_password %}<input type="hidden" name="must_change_password" value="on">{% endif %}
+        {% if d.cannot_change_password %}<input type="hidden" name="cannot_change_password" value="on">{% endif %}
+        {% if d.password_never_expires %}<input type="hidden" name="password_never_expires" value="on">{% endif %}
+
+        <div class="modal-body">
+          {% if error %}
+            <div class="alert alert-danger small">{{ error }}</div>
+          {% endif %}
+
+          <h6 class="mb-3">Проверьте данные перед созданием</h6>
+
+          <div class="row">
+            <!-- ── Левая колонка: ревью-таблица ── -->
+            <div class="col-lg-7">
+              <table class="table table-sm small mb-3">
+                <tbody>
+                  <tr>
+                    <td class="text-secondary" style="width:35%">Организационная единица</td>
+                    <td><code>{{ d.ou_label }}</code></td>
+                  </tr>
+                  <tr>
+                    <td class="text-secondary">Логин (sAMAccountName)</td>
+                    <td><input type="text" class="form-control form-control-sm" name="username" value="{{ d.username }}" required></td>
+                  </tr>
+                  <tr>
+                    <td class="text-secondary">Имя</td>
+                    <td><input type="text" class="form-control form-control-sm" name="first_name" value="{{ d.first_name }}"></td>
+                  </tr>
+                  <tr>
+                    <td class="text-secondary">Фамилия</td>
+                    <td><input type="text" class="form-control form-control-sm" name="last_name" value="{{ d.last_name }}"></td>
+                  </tr>
+                  <tr>
+                    <td class="text-secondary">Отображаемое имя</td>
+                    <td><input type="text" class="form-control form-control-sm" name="display_name" value="{{ d.display_name }}"></td>
+                  </tr>
+                  <tr>
+                    <td class="text-secondary">Email</td>
+                    <td><input type="text" class="form-control form-control-sm" name="email" value="{{ d.email }}"></td>
+                  </tr>
+                  <tr>
+                    <td class="text-secondary">Пароль</td>
+                    <td><span class="text-success">&#10003; Установлен</span></td>
+                  </tr>
+                  <tr>
+                    <td class="text-secondary">Опции пароля</td>
+                    <td>
+                      {% if d.must_change_password %}<span class="badge bg-info text-dark me-1">Сменить при входе</span>{% endif %}
+                      {% if d.cannot_change_password %}<span class="badge bg-warning text-dark me-1">Запрет смены</span>{% endif %}
+                      {% if d.password_never_expires %}<span class="badge bg-secondary me-1">Без срока действия</span>{% endif %}
+                      {% if not d.must_change_password and not d.cannot_change_password and not d.password_never_expires %}
+                        <span class="text-secondary">&mdash;</span>
+                      {% endif %}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td class="text-secondary">ПИН-коды</td>
+                    <td>
+                      <input type="text" class="form-control form-control-sm d-inline-block" style="width:120px" name="otherPager_1" value="{{ d.otherPager_1 }}" placeholder="ПИН 1">
+                      <input type="text" class="form-control form-control-sm d-inline-block ms-1" style="width:120px" name="otherPager_2" value="{{ d.otherPager_2 }}" placeholder="ПИН 2">
+                    </td>
+                  </tr>
+                  <tr>
+                    <td class="text-secondary">IP-телефон</td>
+                    <td><input type="text" class="form-control form-control-sm" name="ipPhone" value="{{ d.ipPhone }}"></td>
+                  </tr>
+                  <tr>
+                    <td class="text-secondary">Организация</td>
+                    <td><input type="text" class="form-control form-control-sm" name="company" value="{{ d.company }}"></td>
+                  </tr>
+                  <tr>
+                    <td class="text-secondary">Отдел</td>
+                    <td><input type="text" class="form-control form-control-sm" name="department" value="{{ d.department }}"></td>
+                  </tr>
+                  <tr>
+                    <td class="text-secondary">Должность</td>
+                    <td><input type="text" class="form-control form-control-sm" name="title" value="{{ d.title }}"></td>
+                  </tr>
+                  <tr>
+                    <td class="text-secondary">Описание</td>
+                    <td><input type="text" class="form-control form-control-sm" name="description" value="{{ d.description }}"></td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <div id="createUserResult"></div>
+            </div>
+
+            <!-- ── Правая колонка: группы ── -->
+            <div class="col-lg-5">
+              <h6 class="small mb-2">Группы
+                {% if d.groups %}<span class="badge bg-secondary">{{ d.groups|length }}</span>{% endif %}
+              </h6>
+              <div id="wizard-groups-list" class="mb-1">
+                {% if d.groups %}
+                <div class="d-flex flex-wrap gap-1 wiz-groups-wrap">
+                  {% for g in d.groups %}
+                    <span class="group-entry d-inline-flex align-items-center">
+                      <input type="hidden" name="groups" value="{{ g }}">
+                      <span class="badge bg-secondary d-inline-flex align-items-center">
+                        {{ d.group_names[loop.index0] if d.group_names else g.split(',')[0][3:] }}
+                        <button type="button" class="btn-close btn-close-white ms-1" style="font-size:.5em"
+                          onclick="this.closest('.group-entry').remove()" aria-label="Удалить"></button>
+                      </span>
+                    </span>
+                  {% endfor %}
+                </div>
+                {% else %}
+                  <div class="small text-secondary">Нет групп</div>
+                {% endif %}
+              </div>
+              <div class="mt-2 mb-3">
+                <div class="input-group input-group-sm">
+                  <input type="text" class="form-control" placeholder="Поиск группы в AD..."
+                    hx-get="/ad-management/wizard-search-groups"
+                    hx-target="#wizard-groups-search-results"
+                    hx-swap="innerHTML"
+                    hx-trigger="keyup changed delay:400ms"
+                    name="term" autocomplete="off">
+                </div>
+                <div id="wizard-groups-search-results" class="mt-1"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary"
+            hx-post="/ad-management/create-user-step3"
+            hx-target="#ad-mgmt-modal"
+            hx-swap="innerHTML"
+            hx-include="closest form"
+          >&larr; Назад</button>
+          <button type="button" class="btn btn-secondary" onclick="closeAdMgmtModal()">Отмена</button>
+          <button type="button" class="btn btn-success"
+            hx-post="/ad-management/create-user"
+            hx-target="#createUserResult"
+            hx-swap="innerHTML"
+            hx-include="closest form"
+            hx-on::after-request="handleAdMgmtModalResponse(event)"
+          >Создать пользователя &#10003;</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>

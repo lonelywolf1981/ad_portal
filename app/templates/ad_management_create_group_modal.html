@@ -1,0 +1,96 @@
+<div class="modal fade show d-block" tabindex="-1" style="background:rgba(0,0,0,.5)"
+  onclick="if(event.target===this)closeAdMgmtModal()">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Создать новую группу</h5>
+        <button type="button" class="btn-close" onclick="closeAdMgmtModal()" aria-label="Close"></button>
+      </div>
+      <form
+        hx-post="/ad-management/create-group"
+        hx-target="#createGroupModalResult"
+        hx-swap="innerHTML"
+        hx-on::after-request="handleAdMgmtModalResponse(event)"
+      >
+        <div class="modal-body">
+          {% if error %}
+            <div class="alert alert-danger">{{ error }}</div>
+          {% endif %}
+          <div class="mb-3">
+            <label class="form-label">Имя группы *</label>
+            <input type="text" class="form-control" name="name" required>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label">Описание</label>
+            <input type="text" class="form-control" name="description">
+          </div>
+
+          <div class="row">
+            <div class="col-md-6">
+              <div class="mb-3">
+                <label class="form-label">Тип группы</label>
+                <select class="form-select" name="category">
+                  <option value="security" selected>Безопасность (Security)</option>
+                  <option value="distribution">Распространение (Distribution)</option>
+                </select>
+              </div>
+            </div>
+            <div class="col-md-6">
+              <div class="mb-3">
+                <label class="form-label">Область действия</label>
+                <select class="form-select" name="scope">
+                  <option value="global" selected>Глобальная (Global)</option>
+                  <option value="domainlocal">Доменная локальная (Domain Local)</option>
+                  <option value="universal">Универсальная (Universal)</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label">Организационная единица (OU) *</label>
+            {% if containers %}
+              <input type="text" class="form-control form-control-sm mb-1"
+                placeholder="Фильтр по названию..."
+                oninput="var q=this.value.toLowerCase().trim();document.querySelectorAll('.group-ou-item').forEach(function(el){el.classList.toggle('d-none',!(!q||(el.getAttribute('data-name')||'').indexOf(q)!==-1))})">
+              <div class="border rounded bg-body-tertiary" style="max-height: 200px; overflow-y: auto;">
+                <div class="list-group list-group-flush small">
+                  {% for c in containers %}
+                    <label class="list-group-item list-group-item-action d-flex align-items-center py-1 px-2 group-ou-item"
+                      data-name="{{ c.label|lower }}">
+                      <input type="radio" name="ou" value="{{ c.dn }}" class="form-check-input me-2 flex-shrink-0" required>
+                      <span style="padding-left: {{ c.depth * 16 }}px;">
+                        <i class="bi bi-folder2 me-1 text-warning"></i>{{ c.label }}
+                      </span>
+                    </label>
+                  {% endfor %}
+                </div>
+              </div>
+              <div class="form-text">Выберите OU или укажите свою ниже</div>
+            {% else %}
+              <div class="text-secondary small mb-1">Не удалось загрузить список OU.</div>
+            {% endif %}
+          </div>
+
+          <div class="mb-3">
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" id="use-custom-group-ou"
+                onchange="document.getElementById('custom-group-ou-field').style.display=this.checked?'block':'none';document.querySelectorAll('.group-ou-item input[type=radio]').forEach(function(r){r.required=!document.getElementById('use-custom-group-ou').checked})">
+              <label class="form-check-label" for="use-custom-group-ou">Указать свою OU вручную</label>
+            </div>
+          </div>
+          <div class="mb-3" id="custom-group-ou-field" style="display: none;">
+            <input type="text" class="form-control" name="custom_ou" placeholder="OU=MyOU,DC=domain,DC=com">
+          </div>
+
+          <div id="createGroupModalResult"></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeAdMgmtModal()">Отмена</button>
+          <button type="submit" class="btn btn-primary">Создать группу</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>

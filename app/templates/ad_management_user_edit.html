@@ -1,0 +1,162 @@
+<!-- Модалка редактирования пользователя -->
+<div class="modal fade show d-block" tabindex="-1" style="background:rgba(0,0,0,.5)">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Редактирование: {{ user_data.display_name or user_data.username }}</h5>
+        <button type="button" class="btn-close" onclick="closeAdMgmtModal()" aria-label="Close"></button>
+      </div>
+      <form
+        hx-post="/ad-management/update-user"
+        hx-target="#userEditModalResult"
+        hx-swap="innerHTML"
+        hx-on::after-request="handleAdMgmtModalResponse(event)"
+      >
+        <div class="modal-body">
+          {% if error %}
+            <div class="alert alert-danger">{{ error }}</div>
+          {% endif %}
+
+          <input type="hidden" name="user_dn" value="{{ user_data.dn }}">
+
+          <div class="row">
+            <!-- ── Левая колонка: атрибуты ── -->
+            <div class="col-lg-7">
+
+              <!-- Статус учётной записи -->
+              {% if user_data.is_locked or user_data.is_disabled %}
+              <div class="mb-3">
+                {% if user_data.is_locked %}
+                  <div class="alert alert-warning py-2 mb-2 d-flex justify-content-between align-items-center">
+                    <span><strong>Учётная запись заблокирована</strong></span>
+                    <button type="button" class="btn btn-sm btn-warning"
+                      hx-post="/ad-management/unlock-user"
+                      hx-vals='{"user_dn":"{{ user_data.dn|e }}"}'
+                      hx-target="#userEditModalResult"
+                      hx-swap="innerHTML"
+                    >Разблокировать</button>
+                  </div>
+                {% endif %}
+                {% if user_data.is_disabled %}
+                  <div class="alert alert-danger py-2 mb-2 d-flex justify-content-between align-items-center">
+                    <span><strong>Учётная запись отключена</strong></span>
+                    <button type="button" class="btn btn-sm btn-success"
+                      hx-post="/ad-management/toggle-user-enabled"
+                      hx-vals='{"user_dn":"{{ user_data.dn|e }}","enable":"true"}'
+                      hx-target="#userEditModalResult"
+                      hx-swap="innerHTML"
+                    >Включить</button>
+                  </div>
+                {% endif %}
+              </div>
+              {% endif %}
+
+              {% if not user_data.is_disabled %}
+              <div class="mb-3 text-end">
+                <button type="button" class="btn btn-outline-danger btn-sm"
+                  hx-post="/ad-management/toggle-user-enabled"
+                  hx-vals='{"user_dn":"{{ user_data.dn|e }}","enable":"false"}'
+                  hx-target="#userEditModalResult"
+                  hx-swap="innerHTML"
+                  hx-confirm="Отключить учётную запись {{ user_data.display_name or user_data.username }}?"
+                >Отключить учётную запись</button>
+              </div>
+              {% endif %}
+
+              <!-- ── Основные данные ── -->
+              <h6 class="border-bottom pb-1 mb-2">Основные данные</h6>
+              <div class="row g-2 mb-3">
+                <div class="col-md-4">
+                  <label class="form-label small">Имя</label>
+                  <input type="text" class="form-control form-control-sm" name="first_name" value="{{ user_data.first_name }}">
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label small">Фамилия</label>
+                  <input type="text" class="form-control form-control-sm" name="last_name" value="{{ user_data.last_name }}">
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label small">Отображаемое имя</label>
+                  <input type="text" class="form-control form-control-sm" name="display_name" value="{{ user_data.display_name }}">
+                </div>
+              </div>
+
+              <!-- ── Контакты ── -->
+              <h6 class="border-bottom pb-1 mb-2">Контакты</h6>
+              <div class="row g-2 mb-3">
+                <div class="col-md-6">
+                  <label class="form-label small">Мобильный телефон</label>
+                  <input type="tel" class="form-control form-control-sm" name="mobile" value="{{ user_data.mobile }}">
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label small">IP-телефон</label>
+                  <input type="text" class="form-control form-control-sm" name="ipPhone" value="{{ user_data.ipPhone }}">
+                </div>
+              </div>
+
+              <!-- ── Организация ── -->
+              <h6 class="border-bottom pb-1 mb-2">Организация</h6>
+              <div class="row g-2 mb-3">
+                <div class="col-md-6">
+                  <label class="form-label small">Должность</label>
+                  <input type="text" class="form-control form-control-sm" name="title" value="{{ user_data.title }}">
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label small">Отдел</label>
+                  <input type="text" class="form-control form-control-sm" name="department" value="{{ user_data.department }}">
+                </div>
+              </div>
+
+              <!-- ── ПИН-коды ── -->
+              <h6 class="border-bottom pb-1 mb-2">ПИН-коды</h6>
+              <div class="row g-2 mb-3">
+                <div class="col-md-6">
+                  <label class="form-label small">ПИН-код 1</label>
+                  <input type="text" class="form-control form-control-sm" name="otherPager_1" value="{{ user_data.otherPager_1 }}">
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label small">ПИН-код 2</label>
+                  <input type="text" class="form-control form-control-sm" name="otherPager_2" value="{{ user_data.otherPager_2 }}">
+                </div>
+              </div>
+
+              <!-- ── Смена пароля ── -->
+              <h6 class="border-bottom pb-1 mb-2">Смена пароля</h6>
+              <div class="row g-2 mb-3">
+                <div class="col-md-6">
+                  <label class="form-label small">Новый пароль</label>
+                  <input type="password" class="form-control form-control-sm" name="password"
+                    placeholder="Оставьте пустым, чтобы не менять"
+                    pattern="[\x20-\x7E]+"
+                    title="Только английские буквы, цифры и спецсимволы"
+                    oninput="var ok=/^[\x20-\x7e]*$/.test(this.value);this.classList.toggle('is-invalid',!ok&amp;&amp;this.value.length>0);this.classList.toggle('is-valid',ok&amp;&amp;this.value.length>0);var c=this.form.querySelector('[name=password_confirm]');if(c&amp;&amp;c.value){c.dispatchEvent(new Event('input'))}">
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label small">Подтверждение пароля</label>
+                  <input type="password" class="form-control form-control-sm" name="password_confirm"
+                    placeholder="Повторите пароль"
+                    oninput="var p=this.form.querySelector('[name=password]').value;var m=this.value===p;this.classList.toggle('is-invalid',!m&amp;&amp;this.value.length>0);this.classList.toggle('is-valid',m&amp;&amp;this.value.length>0)">
+                </div>
+              </div>
+
+              <div id="userEditModalResult"></div>
+            </div>
+
+            <!-- ── Правая колонка: группы ── -->
+            <div class="col-lg-5">
+              {% include "ad_management_user_edit_groups.html" %}
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer d-flex justify-content-between align-items-center">
+          <div class="small text-secondary text-truncate me-3" title="{{ user_data.dn }}">
+            <i class="bi bi-diagram-3"></i> <code style="font-size:.75em">{{ user_data.dn }}</code>
+          </div>
+          <div class="d-flex gap-2 flex-shrink-0">
+            <button type="button" class="btn btn-secondary" onclick="closeAdMgmtModal()">Закрыть</button>
+            <button type="submit" class="btn btn-primary">Сохранить изменения</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>

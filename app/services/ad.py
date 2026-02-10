@@ -45,6 +45,44 @@ def ad_cfg_from_settings(st: AppSettings) -> ADConfig | None:
     return _ad_cfg_from_settings(st)
 
 
+def ad_mgmt_cfg_from_settings(st: AppSettings) -> ADConfig | None:
+    """Build ADConfig for *management* operations.
+
+    Для управления AD используются те же учётные данные, что и для
+    обычных LDAP-операций (ad_bind_username / ad_bind_password_enc).
+    Ранее использовались host_query_*, но они хранят логин в формате
+    DOMAIN\\user (для WinRM/WMI/SMB), который не подходит для LDAP bind.
+    """
+
+    # Базовые AD параметры должны быть заданы.
+    if not st.ad_dc_short or not st.ad_domain or not st.ad_bind_username:
+        return None
+
+    pwd = decrypt_str(st.ad_bind_password_enc)
+    if not (pwd or "").strip():
+        return None
+
+    # DNS сервер: используем тот же принцип, что и для обычного AD клиента.
+    dns_server = (st.net_scan_dns_server or "").strip()
+    if not dns_server and st.net_scan_cidrs:
+        from ..services.settings.validator import _first_dns_server_from_cidrs
+        cidrs = [line.strip() for line in (st.net_scan_cidrs or "").split("\n") if line.strip()]
+        dns_server = _first_dns_server_from_cidrs(cidrs)
+
+    return ADConfig(
+        dc_short=st.ad_dc_short,
+        domain=st.ad_domain,
+        port=st.ad_port,
+        use_ssl=st.ad_use_ssl,
+        starttls=st.ad_starttls,
+        bind_username=st.ad_bind_username,
+        bind_password=pwd,
+        tls_validate=st.ad_tls_validate,
+        ca_pem=st.ad_ca_pem or "",
+        dns_server=dns_server,
+    )
+
+
 def ad_test_and_load_groups(db: Session, st: AppSettings, override: dict | None = None) -> tuple[bool, str, list[dict]]:
     def pick(name, default):
         return override.get(name, default) if override else default
