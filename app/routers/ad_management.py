@@ -87,6 +87,25 @@ def _audit_ad_op(request: Request, auth: dict, action: str, target: str, success
     except Exception:
         log.warning("Не удалось записать аудит операции AD: %s %s", action, target)
 
+def _get_user_groups(client: ADClient, user_dn: str) -> list[dict]:
+    """Получить актуальный список групп пользователя для рендера фрагмента."""
+    ok, _msg, details = client.get_user_details(user_dn)
+    if not ok or not details:
+        return []
+    member_of = details.get("memberOf", [])
+    if isinstance(member_of, str):
+        member_of = [member_of]
+    groups = []
+    for g in member_of:
+        if not g:
+            continue
+        groups.append({
+            "dn": str(g),
+            "name": dn_first_component_value(str(g)),
+        })
+    return groups
+
+
 router = APIRouter()
 
 
@@ -291,6 +310,34 @@ def ad_management_user_details(request: Request, id: str = ""):
             {"request": request, "user_data": {}, "error": msg or "Не удалось получить данные из AD."},
         )
 
+    # userAccountControl — определяем disabled/locked
+    uac = 0
+    uac_raw = details.get("userAccountControl")
+    if uac_raw is not None:
+        try:
+            uac = int(uac_raw)
+        except (ValueError, TypeError):
+            uac = 0
+    is_disabled = bool(uac & 0x2)
+
+    lockout_raw = details.get("lockoutTime")
+    is_locked = False
+    if lockout_raw is not None:
+        # lockoutTime=0 → ldap3 возвращает datetime(1601,1,1) → нормализация в ISO-строку "1601-..."
+        # Реальная блокировка → актуальная дата (202x-...).
+        s = str(lockout_raw)
+        try:
+            is_locked = int(s) > 0
+        except (ValueError, TypeError):
+            # ISO-строка: "1601-01-01..." = не заблокирован, иначе заблокирован
+            is_locked = bool(s) and not s.startswith("1601")
+
+    # otherPager — multi-valued
+    pager_raw = details.get("otherPager", [])
+    if isinstance(pager_raw, str):
+        pager_raw = [pager_raw]
+    pager_list = [str(p) for p in pager_raw if p]
+
     # Prepare user data for editing form
     user_data = {
         "dn": dn,
@@ -299,19 +346,30 @@ def ad_management_user_details(request: Request, id: str = ""):
         "first_name": details.get("givenName", ""),
         "last_name": details.get("sn", ""),
         "display_name": details.get("displayName", ""),
-        "email": details.get("mail", ""),
-        "description": details.get("description", ""),
-        "telephone": details.get("telephoneNumber", ""),
         "mobile": details.get("mobile", ""),
+        "ipPhone": details.get("ipPhone", ""),
+        "title": details.get("title", ""),
         "department": details.get("department", ""),
-        "company": details.get("company", ""),
-        "manager": details.get("manager", ""),
+        "otherPager_1": pager_list[0] if len(pager_list) > 0 else "",
+        "otherPager_2": pager_list[1] if len(pager_list) > 1 else "",
+        "is_disabled": is_disabled,
+        "is_locked": is_locked,
         "groups": details.get("memberOf", []),
     }
 
+    # Подготовить группы для фрагмента ad_management_user_edit_groups.html
+    groups = _get_user_groups(client, dn)
+
     return templates.TemplateResponse(
         "ad_management_user_edit.html",
-        {"request": request, "user_data": user_data, "error": ""},
+        {
+            "request": request,
+            "user_data": user_data,
+            "user_dn": dn,
+            "groups": groups,
+            "error": "",
+            "success": "",
+        },
     )
 
 
@@ -322,15 +380,64 @@ def ad_management_update_user(
     first_name: str = Form(""),
     last_name: str = Form(""),
     display_name: str = Form(""),
-    email: str = Form(""),
-    telephone: str = Form(""),
     mobile: str = Form(""),
+    ipPhone: str = Form(""),
+    title: str = Form(""),
     department: str = Form(""),
-    company: str = Form(""),
-    manager: str = Form(""),
-    password: str = Form(""),  # Optional password change
+    otherPager_1: str = Form(""),
+    otherPager_2: str = Form(""),
+    password: str = Form(""),
+    password_confirm: str = Form(""),
 ):
     """Update user attributes in AD."""
+    auth = require_initialized_or_redirect(request)
+    if not isinstance(auth, dict):
+        return auth
+
+    guard = _admin_guard(request, auth)
+    if guard:
+        return guard
+
+    # Валидация пароля
+    if password:
+        if password != password_confirm:
+            return htmx_alert(ui_result(False, "Пароли не совпадают."), status_code=200)
+        if not all(0x20 <= ord(c) <= 0x7E for c in password):
+            return htmx_alert(ui_result(False, "Пароль содержит недопустимые символы (только английские буквы, цифры, спецсимволы)."), status_code=200)
+
+    cfg, resp = _mgmt_cfg_or_alert(request, template_name="ad_management_user_edit.html", empty_ctx={"user_data": {}})
+    if resp is not None:
+        return resp
+
+    client = ADClient(cfg)  # type: ignore[arg-type]
+
+    pager_list = [p.strip() for p in [otherPager_1, otherPager_2] if p and p.strip()]
+
+    user_data = {
+        'first_name': first_name if first_name else None,
+        'last_name': last_name if last_name else None,
+        'display_name': display_name if display_name else None,
+        'mobile': mobile if mobile else None,
+        'ipPhone': ipPhone if ipPhone else None,
+        'title': title if title else None,
+        'department': department if department else None,
+        'otherPager': pager_list,
+    }
+
+    if password:
+        user_data['password'] = password
+
+    ok, msg = client.update_user(user_dn, user_data)
+    _audit_ad_op(request, auth, "update_user", user_dn, ok, msg)
+    return htmx_alert(ui_result(ok, msg), status_code=200)
+
+
+@router.post("/ad-management/unlock-user")
+def ad_management_unlock_user(
+    request: Request,
+    user_dn: str = Form(...),
+):
+    """Разблокировать учётную запись пользователя."""
     auth = require_initialized_or_redirect(request)
     if not isinstance(auth, dict):
         return auth
@@ -344,26 +451,34 @@ def ad_management_update_user(
         return resp
 
     client = ADClient(cfg)  # type: ignore[arg-type]
-    
-    # Prepare user data for update
-    user_data = {
-        'first_name': first_name if first_name else None,
-        'last_name': last_name if last_name else None,
-        'display_name': display_name if display_name else None,
-        'email': email if email else None,
-        'telephone': telephone if telephone else None,
-        'mobile': mobile if mobile else None,
-        'department': department if department else None,
-        'company': company if company else None,
-        'manager': manager if manager else None,
-    }
-    
-    # Add password if provided
-    if password:
-        user_data['password'] = password
+    ok, msg = client.unlock_user(user_dn)
+    _audit_ad_op(request, auth, "unlock_user", user_dn, ok, msg)
+    return htmx_alert(ui_result(ok, msg), status_code=200)
 
-    ok, msg = client.update_user(user_dn, user_data)
-    _audit_ad_op(request, auth, "update_user", user_dn, ok, msg)
+
+@router.post("/ad-management/toggle-user-enabled")
+def ad_management_toggle_user_enabled(
+    request: Request,
+    user_dn: str = Form(...),
+    enable: str = Form("true"),
+):
+    """Включить или отключить учётную запись пользователя."""
+    auth = require_initialized_or_redirect(request)
+    if not isinstance(auth, dict):
+        return auth
+
+    guard = _admin_guard(request, auth)
+    if guard:
+        return guard
+
+    cfg, resp = _mgmt_cfg_or_alert(request, template_name="ad_management_user_edit.html", empty_ctx={"user_data": {}})
+    if resp is not None:
+        return resp
+
+    client = ADClient(cfg)  # type: ignore[arg-type]
+    do_enable = enable.lower() in ("true", "1", "yes")
+    ok, msg = client.set_user_enabled(user_dn, do_enable)
+    _audit_ad_op(request, auth, "enable_user" if do_enable else "disable_user", user_dn, ok, msg)
     return htmx_alert(ui_result(ok, msg), status_code=200)
 
 
@@ -978,6 +1093,129 @@ def ad_management_delete_group_modal(request: Request, id: str = "", name: str =
     return templates.TemplateResponse(
         "ad_management_delete_group_modal.html",
         {"request": request, "group_id": id, "group_name": name, "group_dn": dn}
+    )
+
+
+@router.get("/ad-management/wizard-search-groups", response_class=HTMLResponse)
+def wizard_search_groups(request: Request, term: str = "", mode: str = "wizard"):
+    """Поиск групп AD для wizard создания пользователя (HTMX-фрагмент).
+
+    mode=wizard → шаблон для wizard (addWizardGroup),
+    mode=edit   → шаблон для редактирования (editUserAddGroup).
+    """
+    auth = require_initialized_or_redirect(request)
+    if not isinstance(auth, dict):
+        return auth
+
+    guard = _admin_guard(request, auth)
+    if guard:
+        return guard
+
+    tmpl = "ad_management_user_edit_groups_search.html" if mode == "edit" else "ad_management_wizard_groups_search.html"
+
+    if not term or len(term.strip()) < 2:
+        return templates.TemplateResponse(
+            tmpl,
+            {"request": request, "groups": [], "error": "", "no_results": False},
+        )
+
+    cfg, resp = _mgmt_cfg_or_alert(
+        request, template_name=tmpl, empty_ctx={"groups": []}
+    )
+    if resp is not None:
+        return resp
+
+    client = ADClient(cfg)  # type: ignore[arg-type]
+    ok, msg, items = client.search_groups(term.strip(), limit=15)
+    if not ok:
+        return templates.TemplateResponse(
+            tmpl,
+            {"request": request, "groups": [], "error": msg or "Ошибка поиска групп.", "no_results": False},
+        )
+
+    groups = []
+    for it in items:
+        groups.append({
+            "dn": it.get("dn", ""),
+            "name": it.get("name", ""),
+            "description": it.get("description", ""),
+        })
+
+    return templates.TemplateResponse(
+        tmpl,
+        {"request": request, "groups": groups, "error": "", "no_results": (not groups)},
+    )
+
+
+@router.post("/ad-management/edit-user-remove-group", response_class=HTMLResponse)
+def edit_user_remove_group(
+    request: Request,
+    user_dn: str = Form(...),
+    group_dn: str = Form(...),
+):
+    """Удалить пользователя из группы AD (при редактировании) и вернуть обновлённый фрагмент."""
+    auth = require_initialized_or_redirect(request)
+    if not isinstance(auth, dict):
+        return auth
+
+    guard = _admin_guard(request, auth)
+    if guard:
+        return guard
+
+    cfg, resp = _mgmt_cfg_or_alert(
+        request, template_name="ad_management_user_edit_groups.html", empty_ctx={"groups": []}
+    )
+    if resp is not None:
+        return resp
+
+    client = ADClient(cfg)  # type: ignore[arg-type]
+    ok, msg = client.remove_user_from_group(user_dn, group_dn)
+    _audit_ad_op(request, auth, "remove_from_group", f"{user_dn} <- {group_dn}", ok, msg)
+
+    # Перечитать актуальные группы пользователя
+    error = "" if ok else (msg or "Ошибка удаления из группы.")
+    success = "Пользователь удалён из группы." if ok else ""
+    groups = _get_user_groups(client, user_dn)
+
+    return templates.TemplateResponse(
+        "ad_management_user_edit_groups.html",
+        {"request": request, "user_dn": user_dn, "groups": groups, "error": error, "success": success},
+    )
+
+
+@router.post("/ad-management/edit-user-add-group", response_class=HTMLResponse)
+def edit_user_add_group(
+    request: Request,
+    user_dn: str = Form(...),
+    group_dn: str = Form(...),
+):
+    """Добавить пользователя в группу AD (при редактировании) и вернуть обновлённый фрагмент."""
+    auth = require_initialized_or_redirect(request)
+    if not isinstance(auth, dict):
+        return auth
+
+    guard = _admin_guard(request, auth)
+    if guard:
+        return guard
+
+    cfg, resp = _mgmt_cfg_or_alert(
+        request, template_name="ad_management_user_edit_groups.html", empty_ctx={"groups": []}
+    )
+    if resp is not None:
+        return resp
+
+    client = ADClient(cfg)  # type: ignore[arg-type]
+    ok, msg = client.add_user_to_group(user_dn, group_dn)
+    _audit_ad_op(request, auth, "add_to_group", f"{user_dn} -> {group_dn}", ok, msg)
+
+    # Перечитать актуальные группы пользователя
+    error = "" if ok else (msg or "Ошибка добавления в группу.")
+    success = "Пользователь добавлен в группу." if ok else ""
+    groups = _get_user_groups(client, user_dn)
+
+    return templates.TemplateResponse(
+        "ad_management_user_edit_groups.html",
+        {"request": request, "user_dn": user_dn, "groups": groups, "error": error, "success": success},
     )
 
 

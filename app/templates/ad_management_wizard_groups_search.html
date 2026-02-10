@@ -1,0 +1,16 @@
+{% if error %}
+  <div class="small text-danger">{{ error }}</div>
+{% elif groups %}
+  <div class="list-group list-group-flush" style="max-height:150px;overflow-y:auto">
+    {% for g in groups %}
+      <button type="button"
+        class="list-group-item list-group-item-action py-1 px-2 small d-flex justify-content-between align-items-center"
+        onclick="addWizardGroup('{{ g.dn|e }}','{{ g.name|e }}')">
+        <span>{{ g.name }}{% if g.description %} <span class="text-secondary">— {{ g.description }}</span>{% endif %}</span>
+        <span class="text-primary">+ Добавить</span>
+      </button>
+    {% endfor %}
+  </div>
+{% elif no_results %}
+  <div class="small text-secondary">Ничего не найдено</div>
+{% endif %}

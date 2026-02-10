@@ -938,7 +938,8 @@ class ADClient:
             "mobile": "mobile",
             "department": "department",
             "company": "company",
-            "manager": "manager",
+            "title": "title",
+            "ipPhone": "ipPhone",
         }
 
         changes: dict[str, list[tuple[int, list[str]]]] = {}
@@ -950,10 +951,20 @@ class ADClient:
                 continue
             v = str(v).strip()
             if v == "":
-                # Empty value -> clear attribute.
                 changes[ldap_attr] = [(MODIFY_DELETE, [])]
             else:
                 changes[ldap_attr] = [(MODIFY_REPLACE, [v])]
+
+        # otherPager — multi-valued
+        if "otherPager" in data:
+            pager_list = data.get("otherPager") or []
+            if isinstance(pager_list, str):
+                pager_list = [pager_list]
+            pager_list = [p.strip() for p in pager_list if p and p.strip()]
+            if pager_list:
+                changes["otherPager"] = [(MODIFY_REPLACE, pager_list)]
+            else:
+                changes["otherPager"] = [(MODIFY_DELETE, [])]
 
         new_password = (data.get("password") or "").strip()
 
@@ -992,6 +1003,84 @@ class ADClient:
 
             conn.unbind()
             return True, "Изменения сохранены."
+
+        except LDAPException as e:
+            try:
+                if conn:
+                    conn.unbind()
+            except Exception:
+                pass
+            return False, f"LDAP ошибка: {e}"
+
+    def unlock_user(self, user_dn: str) -> tuple[bool, str]:
+        """Разблокировать учётную запись (сбросить lockoutTime в 0)."""
+        dn = (user_dn or "").strip()
+        if not dn:
+            return False, "Пустой DN пользователя."
+
+        conn: Connection | None = None
+        try:
+            conn = self._conn(self.cfg.bind_principal, self.cfg.bind_password)
+            if not conn.bind():
+                res = dict(conn.result or {})
+                conn.unbind()
+                return False, f"Ошибка bind: {res.get('description', 'неизвестная ошибка')}"
+
+            ok = conn.modify(dn, {"lockoutTime": [(MODIFY_REPLACE, ["0"])]})
+            res = dict(conn.result or {})
+            conn.unbind()
+            if not ok:
+                return False, f"Не удалось разблокировать: {res.get('description', 'неизвестная ошибка')}"
+            return True, "Учётная запись разблокирована."
+
+        except LDAPException as e:
+            try:
+                if conn:
+                    conn.unbind()
+            except Exception:
+                pass
+            return False, f"LDAP ошибка: {e}"
+
+    def set_user_enabled(self, user_dn: str, enable: bool) -> tuple[bool, str]:
+        """Включить или отключить учётную запись (toggle бита ACCOUNTDISABLE в userAccountControl)."""
+        dn = (user_dn or "").strip()
+        if not dn:
+            return False, "Пустой DN пользователя."
+
+        conn: Connection | None = None
+        try:
+            conn = self._conn(self.cfg.bind_principal, self.cfg.bind_password)
+            if not conn.bind():
+                res = dict(conn.result or {})
+                conn.unbind()
+                return False, f"Ошибка bind: {res.get('description', 'неизвестная ошибка')}"
+
+            # Прочитать текущий userAccountControl
+            ok = conn.search(
+                search_base=dn,
+                search_filter="(objectClass=*)",
+                search_scope=BASE,
+                attributes=["userAccountControl"],
+                size_limit=1,
+            )
+            if not ok or not conn.entries:
+                conn.unbind()
+                return False, "Пользователь не найден."
+
+            uac_raw = getattr(conn.entries[0], "userAccountControl", None)
+            uac = int(uac_raw.value if uac_raw else 512)
+
+            if enable:
+                new_uac = uac & ~0x2  # Снять бит ACCOUNTDISABLE
+            else:
+                new_uac = uac | 0x2  # Установить бит ACCOUNTDISABLE
+
+            ok = conn.modify(dn, {"userAccountControl": [(MODIFY_REPLACE, [str(new_uac)])]})
+            res = dict(conn.result or {})
+            conn.unbind()
+            if not ok:
+                return False, f"Не удалось изменить состояние: {res.get('description', 'неизвестная ошибка')}"
+            return True, "Учётная запись включена." if enable else "Учётная запись отключена."
 
         except LDAPException as e:
             try:

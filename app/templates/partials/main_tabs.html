@@ -232,5 +232,39 @@
       setTimeout(closeAdMgmtModal, 1200);
     }
   }
+  function editUserAddGroup(groupDn) {
+    var section = document.getElementById('user-edit-groups-section');
+    if (!section) return;
+    var userDn = section.dataset.userDn;
+    htmx.ajax('POST', '/ad-management/edit-user-add-group',
+      {target: '#user-edit-groups-section', swap: 'outerHTML',
+       values: {user_dn: userDn, group_dn: groupDn}});
+  }
+  function addWizardGroup(dn, name) {
+    var list = document.getElementById('wizard-groups-list');
+    if (!list) return;
+    // Проверка дубликата
+    var inputs = list.querySelectorAll('input[name="groups"]');
+    for (var i = 0; i < inputs.length; i++) {
+      if (inputs[i].value === dn) return;
+    }
+    // Создать flex-обёртку если нет
+    var wrap = list.querySelector('.wiz-groups-wrap');
+    if (!wrap) {
+      list.innerHTML = '';
+      wrap = document.createElement('div');
+      wrap.className = 'd-flex flex-wrap gap-1 wiz-groups-wrap';
+      list.appendChild(wrap);
+    }
+    // Добавить badge + hidden input
+    var entry = document.createElement('span');
+    entry.className = 'group-entry d-inline-flex align-items-center';
+    entry.innerHTML = '<input type="hidden" name="groups" value="' + dn.replace(/"/g, '&quot;') + '">'
+      + '<span class="badge bg-secondary d-inline-flex align-items-center">'
+      + name.replace(/</g, '&lt;')
+      + '<button type="button" class="btn-close btn-close-white ms-1" style="font-size:.5em" '
+      + 'onclick="this.closest(\'.group-entry\').remove()" aria-label="Удалить"></button></span>';
+    wrap.appendChild(entry);
+  }
 </script>
 {% endif %}
