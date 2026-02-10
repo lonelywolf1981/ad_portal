@@ -20,7 +20,7 @@
         {% if not users %}
           <div class="small text-secondary">Нет пользователей в группе.</div>
         {% else %}
-          <div class="list-group list-group-flush small">
+          <div class="list-group list-group-flush small" style="max-height: 420px; overflow: auto;">
             {% for u in users %}
               <div class="list-group-item px-0">
                 <div class="fw-semibold">{{ u.display }}</div>
