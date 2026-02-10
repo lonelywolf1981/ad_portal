@@ -6,7 +6,7 @@ from typing import Literal, Any
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-CURRENT_SCHEMA_VERSION = 4
+CURRENT_SCHEMA_VERSION = 5
 
 MAX_NETSCAN_CIDRS = 64  # hard limit for net_scan.cidrs
 
@@ -102,6 +102,20 @@ class HostQuerySettings(BaseModel):
     test_host: str = Field(default="", max_length=255)
 
     @field_validator("username", "test_host")
+    @classmethod
+    def _strip(cls, v: str) -> str:
+        return (v or "").strip()
+
+
+class IPPhonesSettings(BaseModel):
+    enabled: bool = Field(default=False)
+    ami_host: str = Field(default="", max_length=255)
+    ami_port: int = Field(default=5038, ge=1, le=65535)
+    ami_user: str = Field(default="", max_length=128)
+    ami_password: str = Field(default="")
+    ami_timeout_s: int = Field(default=5, ge=1, le=30)
+
+    @field_validator("ami_host", "ami_user")
     @classmethod
     def _strip(cls, v: str) -> str:
         return (v or "").strip()
@@ -221,6 +235,22 @@ def upgrade_payload(payload: dict) -> dict:
 
         payload["schema_version"] = 4
 
+    # v4 -> v5 changes:
+    # - добавлен раздел ip_phones для интеграции AMI
+    if v < 5:
+        if "ip_phones" not in payload:
+            payload["ip_phones"] = {}
+        if not isinstance(payload["ip_phones"], dict):
+            payload["ip_phones"] = {}
+        ip_phones = payload["ip_phones"]
+        ip_phones.setdefault("enabled", False)
+        ip_phones.setdefault("ami_host", "")
+        ip_phones.setdefault("ami_port", 5038)
+        ip_phones.setdefault("ami_user", "")
+        ip_phones.setdefault("ami_password", "")
+        ip_phones.setdefault("ami_timeout_s", 5)
+        payload["schema_version"] = 5
+
     # normalize
     try:
         payload["schema_version"] = int(payload.get("schema_version") or CURRENT_SCHEMA_VERSION)
@@ -245,6 +275,7 @@ class AppSettingsSchema(BaseModel):
 
     ad: ADSettings = Field(default_factory=ADSettings)
     host_query: HostQuerySettings = Field(default_factory=HostQuerySettings)
+    ip_phones: IPPhonesSettings = Field(default_factory=IPPhonesSettings)
     net_scan: NetScanSettings = Field(default_factory=NetScanSettings)
 
     @property

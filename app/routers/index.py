@@ -66,6 +66,7 @@ def index(request: Request):
     net_scan_is_running = False
     net_scan_enabled = False
     net_scan_ready = False
+    ip_phones_ready = False
 
     # AD stats (placeholders by default; page must not fail if AD is unreachable)
     ad_users_total: int | str = "—"
@@ -83,6 +84,12 @@ def index(request: Request):
             net_scan_enabled = bool(getattr(st, "net_scan_enabled", False))
             cidrs_txt = (getattr(st, "net_scan_cidrs", "") or "").strip()
             net_scan_ready = bool(net_scan_enabled and cidrs_txt)
+            ip_phones_ready = bool(
+                bool(getattr(st, "ip_phones_enabled", False))
+                and bool((getattr(st, "ip_phones_ami_host", "") or "").strip())
+                and bool((getattr(st, "ip_phones_ami_user", "") or "").strip())
+                and bool((getattr(st, "ip_phones_ami_password_enc", "") or "").strip())
+            )
 
             dt = getattr(st, "net_scan_last_run_ts", None)
             if dt:
@@ -150,6 +157,7 @@ def index(request: Request):
             "net_scan_is_running": net_scan_is_running,
             "net_scan_enabled": net_scan_enabled,
             "net_scan_ready": net_scan_ready,
+            "ip_phones_ready": ip_phones_ready,
             "ad_users_total": ad_users_total,
             "ad_users_enabled": ad_users_enabled,
             "online_users": online_users,

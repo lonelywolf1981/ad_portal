@@ -77,6 +77,14 @@ def _coerce_legacy_payload(raw: Any) -> Any:
                 "timeout_s": int(hq.get("timeout_s") or 60),
                 "test_host": hq.get("test_host") or "",
             },
+            "ip_phones": {
+                "enabled": bool((raw.get("ip_phones") or {}).get("enabled") or False),
+                "ami_host": (raw.get("ip_phones") or {}).get("ami_host") or "",
+                "ami_port": int((raw.get("ip_phones") or {}).get("ami_port") or 5038),
+                "ami_user": (raw.get("ip_phones") or {}).get("ami_user") or "",
+                "ami_password": (raw.get("ip_phones") or {}).get("ami_password") or "",
+                "ami_timeout_s": int((raw.get("ip_phones") or {}).get("ami_timeout_s") or 5),
+            },
             "net_scan": {
                 "enabled": bool(ns.get("enabled") or False),
                 "cidrs": cidrs_list,
@@ -106,6 +114,8 @@ def export_settings(data: AppSettingsSchema, *, include_secrets: bool = False) -
         d["ad"]["bind_password"] = ""
         d.setdefault("host_query", {})
         d["host_query"]["password"] = ""
+        d.setdefault("ip_phones", {})
+        d["ip_phones"]["ami_password"] = ""
 
     return d
 

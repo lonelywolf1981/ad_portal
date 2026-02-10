@@ -89,6 +89,7 @@ from .routers.users import router as users_router  # noqa: E402
 from .routers.hosts import router as hosts_router  # noqa: E402
 from .routers.presence import router as presence_router  # noqa: E402
 from .routers.ad_management import router as ad_management_router  # noqa: E402
+from .routers.ip_phones import router as ip_phones_router  # noqa: E402
 
 app.include_router(health_router)
 app.include_router(auth_router)
@@ -98,3 +99,4 @@ app.include_router(users_router)
 app.include_router(hosts_router)
 app.include_router(presence_router)
 app.include_router(ad_management_router)
+app.include_router(ip_phones_router)

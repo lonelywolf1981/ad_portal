@@ -1,0 +1,93 @@
+{% set d = data or {} %}
+<div id="ip-phones-results" class="mt-3">
+  <form
+    class="row g-2 align-items-center mb-2"
+    hx-get="/ip-phones/avail-with-ad"
+    hx-target="#ip-phones-results"
+    hx-swap="outerHTML"
+    hx-trigger="submit, keyup changed delay:350ms from:input[name='q']"
+  >
+    <div class="col-md-8">
+      <input
+        type="text"
+        class="form-control"
+        name="q"
+        placeholder="Поиск по части номера, ФИО или логина"
+        autocomplete="off"
+        value="{{ d.get('query', '') }}"
+      >
+    </div>
+    <div class="col-md-2 d-grid">
+      <button class="btn btn-primary" type="submit">Найти</button>
+    </div>
+    <div class="col-md-2">
+      <div class="d-flex align-items-center gap-2">
+        <div class="spinner-border spinner-border-sm text-secondary htmx-indicator" role="status" aria-hidden="true"></div>
+        <div class="small text-secondary htmx-indicator">Поиск...</div>
+      </div>
+    </div>
+  </form>
+
+  {% if not d.get("ok") %}
+    <div class="alert alert-secondary mb-0">
+      {{ d.get("message") or "Раздел IP-телефонов недоступен." }}
+      {% if user and user.get("settings") %}
+        <a href="/settings" class="alert-link">Открыть настройки</a>.
+      {% endif %}
+    </div>
+  {% else %}
+    <div class="d-flex flex-wrap gap-2 mb-2 small">
+      <span class="badge text-bg-secondary">Всего: {{ d.get("total", 0) }}</span>
+      <span class="badge text-bg-success">Сопоставлено: {{ d.get("matched", 0) }}</span>
+      <span class="badge text-bg-warning">Без сопоставления: {{ d.get("unmatched", 0) }}</span>
+    </div>
+    {% if d.get("query") %}
+      <div class="small text-secondary mb-2">
+        Фильтр: <code>{{ d.get("query") }}</code>. Показано {{ d.get("total", 0) }} из {{ d.get("total_all", d.get("total", 0)) }}.
+      </div>
+    {% endif %}
+
+    {% if d.get("ad_warning") %}
+      <div class="alert alert-warning py-2">{{ d.get("ad_warning") }}</div>
+    {% endif %}
+
+    {% if not d.get("items") %}
+      <div class="alert alert-light border mb-0">
+        {% if d.get("query") %}
+          По вашему запросу ничего не найдено.
+        {% else %}
+          Нет доступных 4-значных номеров.
+        {% endif %}
+      </div>
+    {% else %}
+      <div class="table-responsive border rounded bg-body-tertiary">
+        <table class="table table-sm table-hover align-middle mb-0">
+          <thead>
+            <tr>
+              <th>Номер</th>
+              <th>IP</th>
+              <th>Пользователь AD</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in d.get("items", []) %}
+              <tr>
+                <td class="fw-semibold">{{ row.extension }}</td>
+                <td><code>{{ row.ip }}</code></td>
+                <td>
+                  {% if row.users %}
+                    {% for u in row.users %}
+                      <div>{{ u.fio or "—" }}{% if u.login %} <span class="text-secondary">({{ u.login }})</span>{% endif %}</div>
+                    {% endfor %}
+                  {% else %}
+                    <span class="text-danger fw-semibold">Не найден в AD</span>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% endif %}
+  {% endif %}
+</div>

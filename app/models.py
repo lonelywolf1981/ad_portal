@@ -61,6 +61,14 @@ class AppSettings(Base):
     host_query_password_enc: Mapped[str] = mapped_column(String(2048), default="", nullable=False)
     host_query_timeout_s: Mapped[int] = mapped_column(Integer, default=60, nullable=False)
 
+    # IP phones / Asterisk AMI settings
+    ip_phones_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    ip_phones_ami_host: Mapped[str] = mapped_column(String(255), default="", nullable=False)
+    ip_phones_ami_port: Mapped[int] = mapped_column(Integer, default=5038, nullable=False)
+    ip_phones_ami_user: Mapped[str] = mapped_column(String(128), default="", nullable=False)
+    ip_phones_ami_password_enc: Mapped[str] = mapped_column(String(2048), default="", nullable=False)
+    ip_phones_ami_timeout_s: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
+
     # Network scan settings (periodic user presence detection)
     net_scan_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     net_scan_cidrs: Mapped[str] = mapped_column(Text, default="", nullable=False)  # newline-separated CIDR list

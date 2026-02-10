@@ -5,6 +5,7 @@ from typing import Any, Optional
 import ssl
 import hashlib
 import os
+import re
 
 from ldap3 import (
     Server,
@@ -740,6 +741,77 @@ class ADClient:
             except Exception:
                 pass
             return False, f"LDAP ошибка: {e}", []
+
+    def users_by_ipphone_extension(self, limit: int = 5000) -> tuple[bool, str, dict[str, list[dict[str, str]]]]:
+        """Build mapping extension -> users using AD `ipPhone` attribute."""
+        base = self.cfg.base_dn
+        if not base:
+            return False, "BaseDN пустой (проверьте домен в настройках).", {}
+
+        conn: Connection | None = None
+        try:
+            conn = self._conn(self.cfg.bind_principal, self.cfg.bind_password)
+            if not conn.bind():
+                res = dict(conn.result or {})
+                conn.unbind()
+                return False, f"Ошибка bind: {res.get('description', 'неизвестная ошибка')}", {}
+
+            attrs = ["displayName", "sAMAccountName", "ipPhone"]
+            flt = "(&(objectCategory=person)(objectClass=user)(ipPhone=*))"
+            ok = conn.search(
+                search_base=base,
+                search_filter=flt,
+                search_scope=SUBTREE,
+                attributes=attrs,
+                size_limit=limit,
+            )
+            if not ok:
+                res = dict(conn.result or {})
+                conn.unbind()
+                return False, f"Поиск не выполнен: {res.get('description', 'неизвестная ошибка')}", {}
+
+            by_ext: dict[str, list[dict[str, str]]] = {}
+            for entry in conn.entries:
+                attrs_map = entry.entry_attributes_as_dict or {}
+                display_name = attrs_map.get("displayName")
+                sam = attrs_map.get("sAMAccountName")
+                ip_phone_raw = attrs_map.get("ipPhone")
+
+                fio = str(display_name[0]) if isinstance(display_name, list) and display_name else str(display_name or "")
+                login = str(sam[0]) if isinstance(sam, list) and sam else str(sam or "")
+
+                if isinstance(ip_phone_raw, list):
+                    ip_phone_values = [str(x) for x in ip_phone_raw if str(x).strip()]
+                elif ip_phone_raw:
+                    ip_phone_values = [str(ip_phone_raw)]
+                else:
+                    ip_phone_values = []
+
+                if not ip_phone_values:
+                    continue
+
+                exts: set[str] = set()
+                for raw in ip_phone_values:
+                    exts.update(re.findall(r"\b(\d{4})\b", raw))
+
+                if not exts:
+                    continue
+
+                for ext in exts:
+                    users = by_ext.setdefault(ext, [])
+                    if login and any((u.get("login") or "").lower() == login.lower() for u in users):
+                        continue
+                    users.append({"fio": fio, "login": login})
+
+            conn.unbind()
+            return True, "OK", by_ext
+        except LDAPException as e:
+            try:
+                if conn:
+                    conn.unbind()
+            except Exception:
+                pass
+            return False, f"LDAP ошибка: {e}", {}
 
     def get_user_details(self, user_dn: str) -> tuple[bool, str, dict]:
         """Return a dict of all non-empty LDAP attributes for a user DN."""
