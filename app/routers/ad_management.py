@@ -1051,8 +1051,9 @@ async def create_user_wizard_step3(request: Request):
         "last_name": (form.get("last_name") or "").strip(),
         "display_name": (form.get("display_name") or "").strip(),
         "email": (form.get("email") or "").strip(),
-        "password": form.get("password") or "",
-        "password_confirm": form.get("password_confirm") or "",
+        # Do not prefill password fields when returning to step 3.
+        "password": "",
+        "password_confirm": "",
         "must_change_password": bool(form.get("must_change_password")),
         "cannot_change_password": bool(form.get("cannot_change_password")),
         "password_never_expires": bool(form.get("password_never_expires")),
@@ -1126,6 +1127,8 @@ async def create_user_wizard_step4(request: Request):
     form = await request.form()
     ou = (form.get("ou") or "").strip()
     ou_label = dn_first_component_value(ou)
+    password = form.get("password") or ""
+    password_confirm = form.get("password_confirm") or ""
 
     d = {
         "ou": ou,
@@ -1136,8 +1139,9 @@ async def create_user_wizard_step4(request: Request):
         "last_name": (form.get("last_name") or "").strip(),
         "display_name": (form.get("display_name") or "").strip(),
         "email": (form.get("email") or "").strip(),
-        "password": form.get("password") or "",
-        "password_confirm": form.get("password_confirm") or "",
+        # Never render plaintext password in HTML.
+        "password": "",
+        "password_confirm": "",
         "must_change_password": bool(form.get("must_change_password")),
         "cannot_change_password": bool(form.get("cannot_change_password")),
         "password_never_expires": bool(form.get("password_never_expires")),
@@ -1156,11 +1160,11 @@ async def create_user_wizard_step4(request: Request):
     errors: list[str] = []
     if not d["username"]:
         errors.append("Не указан логин.")
-    if not d["password"]:
+    if not password:
         errors.append("Не указан пароль.")
-    if d["password"] != d["password_confirm"]:
+    if password != password_confirm:
         errors.append("Пароли не совпадают.")
-    if d["password"] and not all(0x20 <= ord(c) <= 0x7E for c in d["password"]):
+    if password and not all(0x20 <= ord(c) <= 0x7E for c in password):
         errors.append("Пароль содержит недопустимые символы (только английские буквы, цифры, спецсимволы).")
     if not ou or not _is_valid_dn(ou):
         errors.append("Некорректный формат OU.")

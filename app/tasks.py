@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+import logging
+
+from sqlalchemy import update
 
 from .celery_app import celery_app
 from .crypto import decrypt_str
@@ -8,12 +11,14 @@ from .net_scan import scan_presence
 from .presence import upsert_presence_bulk
 from .mappings import cleanup_host_user_matches, upsert_host_user_matches
 from .repo import db_session, get_or_create_settings
+from .models import AppSettings
 from .timezone_utils import format_ru_local
 from .utils.numbers import clamp_int
 
 
 # If a scan crashes mid-flight, allow new runs after this TTL.
 _LOCK_STALE_HOURS = 1
+log = logging.getLogger(__name__)
 
 
 def _utcnow() -> datetime:
@@ -42,7 +47,11 @@ def maybe_run_network_scan(force: bool = False) -> dict:
 
         # Clear stale lock (previous crash / killed worker)
         if lock_ts and (now - lock_ts) > timedelta(hours=_LOCK_STALE_HOURS):
-            st.net_scan_lock_ts = None
+            db.execute(
+                update(AppSettings)
+                .where(AppSettings.id == 1, AppSettings.net_scan_lock_ts == lock_ts)
+                .values(net_scan_lock_ts=None)
+            )
             db.commit()
             lock_ts = None
 
@@ -64,9 +73,15 @@ def maybe_run_network_scan(force: bool = False) -> dict:
                 "next_run": format_ru_local(next_run),
             }
 
-        # Lock and schedule scan
-        st.net_scan_lock_ts = now
+        # Atomically acquire lock to avoid double scheduling across workers.
+        got_lock = db.execute(
+            update(AppSettings)
+            .where(AppSettings.id == 1, AppSettings.net_scan_lock_ts.is_(None))
+            .values(net_scan_lock_ts=now)
+        )
         db.commit()
+        if int(got_lock.rowcount or 0) == 0:
+            return {"status": "running"}
 
     try:
         run_network_scan.delay()
@@ -202,6 +217,7 @@ def run_network_scan() -> dict:
         return {"status": "ok", "summary": summary[:512]}
 
     except Exception as e:
+        log.exception("Ошибка выполнения фонового net-scan")
         # Best-effort status update + unlock
         with db_session() as db:
             st = get_or_create_settings(db)

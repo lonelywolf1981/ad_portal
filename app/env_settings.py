@@ -13,6 +13,7 @@ class EnvSettings(BaseSettings):
     bootstrap_admin_password: str = Field("ChangeMe123!", alias="BOOTSTRAP_ADMIN_PASSWORD")
 
     redis_url: str = Field("redis://redis:6379/0", alias="REDIS_URL")
+    host_query_winrm_insecure: bool = Field(False, alias="HOST_QUERY_WINRM_INSECURE")
 
     class Config:
         populate_by_name = True

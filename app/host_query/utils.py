@@ -2,6 +2,11 @@ from __future__ import annotations
 
 import concurrent.futures
 
+_TIMEOUT_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
+    max_workers=32,
+    thread_name_prefix="host-query-timeout",
+)
+
 
 def dedupe_users(users: list[str]) -> list[str]:
     seen = set()
@@ -19,11 +24,10 @@ def dedupe_users(users: list[str]) -> list[str]:
 
 
 def run_with_timeout(fn, timeout_s: int):
-    """Run in a worker thread and enforce timeout without waiting on shutdown."""
-    ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-    fut = ex.submit(fn)
+    """Run in a shared worker pool and enforce timeout."""
+    fut = _TIMEOUT_EXECUTOR.submit(fn)
     try:
         return fut.result(timeout=timeout_s)
-    finally:
-        # Important: do NOT wait here; otherwise timeouts are ineffective.
-        ex.shutdown(wait=False, cancel_futures=True)
+    except concurrent.futures.TimeoutError:
+        fut.cancel()
+        raise

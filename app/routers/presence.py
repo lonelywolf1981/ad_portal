@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import logging
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
@@ -14,6 +15,7 @@ from ..utils.net import ip_key, ip_subnet_key, natural_key, short_hostname, subn
 from ..webui import templates
 
 router = APIRouter()
+log = logging.getLogger(__name__)
 
 def _require_presence_enabled() -> bool:
     """Presence/mapping features depend on periodic net-scan.
@@ -30,6 +32,7 @@ def _require_presence_enabled() -> bool:
             return bool(enabled and cidrs_txt)
     except Exception:
         # If settings are not available, be conservative and disable presence.
+        log.warning("Не удалось проверить доступность вкладки Сопоставления", exc_info=True)
         return False
 
 
@@ -81,7 +84,7 @@ def presence_search(request: Request, q: str = "", sort: str = "when", dir: str 
     try:
         rows = sorted(rows, key=_row_key, reverse=reverse)
     except Exception:
-        pass
+        log.warning("Не удалось отсортировать результаты сопоставлений", exc_info=True)
 
     items = []
     for r in rows:
@@ -138,7 +141,7 @@ def presence_export_xlsx(request: Request, q: str = "", sort: str = "when", dir:
     try:
         rows = sorted(rows, key=_row_key, reverse=reverse)
     except Exception:
-        pass
+        log.warning("Не удалось отсортировать результаты сопоставлений для экспорта", exc_info=True)
 
     wb = Workbook()
     ws = wb.active

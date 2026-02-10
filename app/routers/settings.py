@@ -4,6 +4,7 @@ import ipaddress
 import json
 import inspect
 import re
+import logging
 from html import escape as html_escape
 from datetime import datetime, timedelta
 from pydantic import ValidationError
@@ -41,6 +42,8 @@ from ..host_query.api import find_logged_on_users
 
 
 router = APIRouter()
+log = logging.getLogger(__name__)
+MAX_SETTINGS_IMPORT_BYTES = 1 * 1024 * 1024
 
 
 
@@ -262,7 +265,7 @@ def _effective_settings_from_form(db, form: dict) -> AppSettingsSchema:
         try:
             patch["host_query"]["timeout_s"] = int(form.get("host_query_timeout_s") or patch["host_query"]["timeout_s"])
         except Exception:
-            pass
+            log.warning("Не удалось вычислить статистику последнего net-scan для страницы настроек", exc_info=True)
     if form.get("host_query_test_host") is not None:
         patch["host_query"]["test_host"] = (form.get("host_query_test_host") or "").strip()
 
@@ -709,10 +712,23 @@ async def settings_import_json(request: Request, file: UploadFile = File(...)):
 
     hx = (request.headers.get('HX-Request', '') or '').lower() == 'true'
 
-    raw = await file.read()
+    content_type = (getattr(file, "content_type", "") or "").lower()
+    if content_type and ("json" not in content_type) and (content_type != "text/plain"):
+        msg = "Импорт: ожидается JSON-файл."
+        if hx:
+            return htmx_alert(ui_result(False, msg), status_code=200)
+        return RedirectResponse(url="/settings?saved=0&import_err=1", status_code=303)
+
+    raw = await file.read(MAX_SETTINGS_IMPORT_BYTES + 1)
+    if len(raw) > MAX_SETTINGS_IMPORT_BYTES:
+        msg = f"Импорт: файл слишком большой (максимум {MAX_SETTINGS_IMPORT_BYTES // 1024} KB)."
+        if hx:
+            return htmx_alert(ui_result(False, msg), status_code=200)
+        return RedirectResponse(url="/settings?saved=0&import_err=1", status_code=303)
     try:
         imported = import_settings(raw)
     except Exception as e:
+        log.warning("Ошибка импорта настроек из JSON", exc_info=True)
         if hx:
             return htmx_alert(ui_result(False, "Импорт: ошибка", str(e)), status_code=200)
         return RedirectResponse(url="/settings?saved=0&import_err=1", status_code=303)

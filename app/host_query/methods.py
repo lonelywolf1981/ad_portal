@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from ..utils.tcp_probe import tcp_probe
+from ..env_settings import get_env
 from .utils import dedupe_users
 
 
@@ -51,13 +52,15 @@ $users | Sort-Object -Unique
 """
 
     last_err: Exception | None = None
+    insecure_tls = bool(get_env().host_query_winrm_insecure)
     for ep in endpoints:
         try:
+            cert_validation = "ignore" if (insecure_tls and ep.startswith("https://")) else "validate"
             sess = winrm.Session(
                 ep,
                 auth=(username, password),
                 transport="ntlm",
-                server_cert_validation="ignore",
+                server_cert_validation=cert_validation,
                 read_timeout_sec=read_timeout,
                 operation_timeout_sec=op_timeout,
             )

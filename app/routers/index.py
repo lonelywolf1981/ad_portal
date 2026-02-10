@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import re
+import threading
+from datetime import datetime, timedelta
+import logging
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
@@ -14,6 +17,38 @@ from ..webui import templates
 
 
 router = APIRouter()
+log = logging.getLogger(__name__)
+_AD_STATS_TTL = timedelta(seconds=60)
+_AD_STATS_LOCK = threading.Lock()
+_AD_STATS_CACHE: dict[str, object] = {
+    "ts": None,
+    "total": "—",
+    "enabled": "—",
+}
+
+
+def _get_ad_stats_cached(cfg) -> tuple[int | str, int | str]:
+    now = datetime.utcnow()
+    with _AD_STATS_LOCK:
+        ts = _AD_STATS_CACHE.get("ts")
+        if isinstance(ts, datetime) and (now - ts) <= _AD_STATS_TTL:
+            return _AD_STATS_CACHE.get("total", "—"), _AD_STATS_CACHE.get("enabled", "—")
+
+    total: int | str = "—"
+    enabled: int | str = "—"
+    try:
+        client = ADClient(cfg)
+        ok, _ = client.service_bind()
+        if ok:
+            total, enabled = client.count_users_total_and_enabled()
+    except Exception:
+        pass
+
+    with _AD_STATS_LOCK:
+        _AD_STATS_CACHE["ts"] = now
+        _AD_STATS_CACHE["total"] = total
+        _AD_STATS_CACHE["enabled"] = enabled
+    return total, enabled
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -64,15 +99,10 @@ def index(request: Request):
             # AD totals (total + enabled)
             cfg = ad_cfg_from_settings(st)
             if cfg:
-                client = ADClient(cfg)
-                ok, _ = client.service_bind()
-                if ok:
-                    total, enabled = client.count_users_total_and_enabled()
-                    ad_users_total = total
-                    ad_users_enabled = enabled
+                ad_users_total, ad_users_enabled = _get_ad_stats_cached(cfg)
     except Exception:
-        # do not fail the main page if settings schema is missing or AD is down
-        pass
+        # Do not fail the main page if settings schema is missing or AD is down.
+        log.warning("Ошибка при подготовке данных главной страницы", exc_info=True)
 
     return templates.TemplateResponse(
         "index.html",
@@ -120,7 +150,7 @@ def net_scan_poll(request: Request, last: str = ""):
             # Authoritative "running" marker is net_scan_lock_ts (set/cleared by background task).
             is_running = bool(getattr(st, "net_scan_lock_ts", None))
     except Exception:
-        pass
+        log.warning("Ошибка poll-эндпоинта net-scan", exc_info=True)
 
     # Refresh only when scan finished and we see a NEW last_run token.
     should_refresh = (not is_running) and bool(cur_token) and (cur_token != last)

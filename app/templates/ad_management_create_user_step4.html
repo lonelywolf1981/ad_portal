@@ -9,8 +9,6 @@
         <!-- Скрытые поля, не показываемые в таблице -->
         <input type="hidden" name="ou" value="{{ d.ou }}">
         <input type="hidden" name="template_user_dn" value="{{ d.template_user_dn }}">
-        <input type="hidden" name="password" value="{{ d.password }}">
-        <input type="hidden" name="password_confirm" value="{{ d.password_confirm }}">
         {% if d.must_change_password %}<input type="hidden" name="must_change_password" value="on">{% endif %}
         {% if d.cannot_change_password %}<input type="hidden" name="cannot_change_password" value="on">{% endif %}
         {% if d.password_never_expires %}<input type="hidden" name="password_never_expires" value="on">{% endif %}
@@ -53,7 +51,13 @@
                   </tr>
                   <tr>
                     <td class="text-secondary">Пароль</td>
-                    <td><span class="text-success">&#10003; Установлен</span></td>
+                    <td>
+                      <input type="password" class="form-control form-control-sm mb-1" name="password" required
+                        pattern="[\x20-\x7E]+" title="Только английские буквы, цифры и спецсимволы">
+                      <input type="password" class="form-control form-control-sm" name="password_confirm" required
+                        placeholder="Подтверждение пароля">
+                      <div class="form-text">Введите пароль повторно перед созданием пользователя.</div>
+                    </td>
                   </tr>
                   <tr>
                     <td class="text-secondary">Опции пароля</td>
