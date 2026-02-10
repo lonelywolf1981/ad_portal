@@ -46,9 +46,12 @@ def maybe_run_network_scan(force: bool = False) -> dict:
             db.commit()
             lock_ts = None
 
-        # If locked -> a scan is already running
+        # If locked -> a scan is already running (or dispatch failed and stale cleanup not reached yet)
         if lock_ts:
-            return {"status": "running"}
+            return {
+                "status": "running",
+                "locked_for_s": int((now - lock_ts).total_seconds()),
+            }
 
         interval_min = clamp_int(getattr(st, "net_scan_interval_min", 120), default=120, min_v=10, max_v=24 * 60)
 
@@ -65,8 +68,17 @@ def maybe_run_network_scan(force: bool = False) -> dict:
         st.net_scan_lock_ts = now
         db.commit()
 
-    run_network_scan.delay()
-    return {"status": "scheduled"}
+    try:
+        run_network_scan.delay()
+        return {"status": "scheduled"}
+    except Exception as e:
+        # If we failed to enqueue, immediately unlock so the next tick can retry.
+        with db_session() as db:
+            st = get_or_create_settings(db)
+            st.net_scan_lock_ts = None
+            st.net_scan_last_summary = (f"Ошибка постановки задачи: {str(e) or type(e).__name__}")[:512]
+            db.commit()
+        return {"status": "enqueue_error"}
 
 
 # Backward-compatible alias (older beat schedule may call this name)
