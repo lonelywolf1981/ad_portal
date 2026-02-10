@@ -57,6 +57,8 @@ def ensure_schema() -> None:
             add("ALTER TABLE app_settings ADD COLUMN net_scan_method_timeout_s INTEGER NOT NULL DEFAULT 20")
         if "net_scan_probe_timeout_ms" not in cols:
             add("ALTER TABLE app_settings ADD COLUMN net_scan_probe_timeout_ms INTEGER NOT NULL DEFAULT 350")
+        if "net_scan_stats_retention_days" not in cols:
+            add("ALTER TABLE app_settings ADD COLUMN net_scan_stats_retention_days INTEGER NOT NULL DEFAULT 30")
 
         if "net_scan_last_run_ts" not in cols:
             add("ALTER TABLE app_settings ADD COLUMN net_scan_last_run_ts DATETIME")

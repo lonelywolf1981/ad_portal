@@ -131,6 +131,7 @@ def _coerce_settings_payload(payload: dict) -> object:
             "concurrency": int(payload.get("net_scan_concurrency") or 64),
             "method_timeout_s": int(payload.get("net_scan_method_timeout_s") or 20),
             "probe_timeout_ms": int(payload.get("net_scan_probe_timeout_ms") or 350),
+            "stats_retention_days": int(payload.get("net_scan_stats_retention_days") or 30),
         },
     }
 
@@ -265,7 +266,7 @@ def _effective_settings_from_form(db, form: dict) -> AppSettingsSchema:
         try:
             patch["host_query"]["timeout_s"] = int(form.get("host_query_timeout_s") or patch["host_query"]["timeout_s"])
         except Exception:
-            log.warning("Не удалось вычислить статистику последнего net-scan для страницы настроек", exc_info=True)
+            log.warning("Некорректное значение host_query_timeout_s", exc_info=True)
     if form.get("host_query_test_host") is not None:
         patch["host_query"]["test_host"] = (form.get("host_query_test_host") or "").strip()
 
@@ -276,6 +277,13 @@ def _effective_settings_from_form(db, form: dict) -> AppSettingsSchema:
         patch["net_scan"]["cidrs"] = _parse_cidrs(form.get("net_scan_cidrs") or "")
     if form.get("net_scan_dns_server") is not None:
         patch["net_scan"]["dns_server"] = (form.get("net_scan_dns_server") or "").strip()
+    if form.get("net_scan_stats_retention_days") is not None:
+        try:
+            patch["net_scan"]["stats_retention_days"] = int(
+                form.get("net_scan_stats_retention_days") or patch["net_scan"]["stats_retention_days"]
+            )
+        except Exception:
+            log.warning("Некорректное значение net_scan_stats_retention_days", exc_info=True)
 
     return AppSettingsSchema.model_validate(patch)
 
@@ -504,6 +512,7 @@ def settings_save(
     net_scan_concurrency: int = Form(64),
     net_scan_method_timeout_s: int = Form(20),
     net_scan_probe_timeout_ms: int = Form(350),
+    net_scan_stats_retention_days: int = Form(30),
     allowed_app_group_dns: list[str] = Form([]),
     allowed_settings_group_dns: list[str] = Form([]),
 ):
@@ -547,6 +556,7 @@ def settings_save(
                     "net_scan_concurrency": net_scan_concurrency,
                     "net_scan_method_timeout_s": net_scan_method_timeout_s,
                     "net_scan_probe_timeout_ms": net_scan_probe_timeout_ms,
+                    "net_scan_stats_retention_days": net_scan_stats_retention_days,
                     "allowed_app_group_dns": allowed_app_group_dns,
                     "allowed_settings_group_dns": allowed_settings_group_dns,
                 },

@@ -40,6 +40,9 @@ def _migrate_settings_row(st: AppSettings) -> bool:
     if not hasattr(st, 'net_scan_dns_server'):
         st.net_scan_dns_server = ""
         changed = True
+    if not hasattr(st, "net_scan_stats_retention_days"):
+        st.net_scan_stats_retention_days = 30
+        changed = True
 
     return changed
 
@@ -87,6 +90,7 @@ def get_settings(db: Session) -> AppSettingsSchema:
             "concurrency": int(getattr(st, "net_scan_concurrency", 64) or 64),
             "method_timeout_s": int(getattr(st, "net_scan_method_timeout_s", 20) or 20),
             "probe_timeout_ms": int(getattr(st, "net_scan_probe_timeout_ms", 350) or 350),
+            "stats_retention_days": int(getattr(st, "net_scan_stats_retention_days", 30) or 30),
         },
     )
 
@@ -147,6 +151,7 @@ def save_settings(db: Session, data: AppSettingsSchema, *, keep_secrets_if_blank
     st.net_scan_concurrency = int(data.net_scan.concurrency or 64)
     setattr(st, "net_scan_method_timeout_s", int(data.net_scan.method_timeout_s or 20))
     setattr(st, "net_scan_probe_timeout_ms", int(data.net_scan.probe_timeout_ms or 350))
+    setattr(st, "net_scan_stats_retention_days", int(data.net_scan.stats_retention_days or 30))
 
     st.updated_at = datetime.utcnow()
     db.commit()

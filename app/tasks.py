@@ -3,15 +3,17 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 import logging
 
-from sqlalchemy import update
+from sqlalchemy import update, delete
 
 from .celery_app import celery_app
+from .ad import ADClient
+from .services.ad import ad_cfg_from_settings
 from .crypto import decrypt_str
 from .net_scan import scan_presence
 from .presence import upsert_presence_bulk
 from .mappings import cleanup_host_user_matches, upsert_host_user_matches
 from .repo import db_session, get_or_create_settings
-from .models import AppSettings
+from .models import AppSettings, ScanStatsHistory
 from .timezone_utils import format_ru_local
 from .utils.numbers import clamp_int
 
@@ -186,6 +188,27 @@ def run_network_scan() -> dict:
             finished = _utcnow()
             dur_s = int((finished - started).total_seconds())
             skipped = max(0, int(res.total_ips) - int(res.alive))
+            retention_days = clamp_int(
+                getattr(st, "net_scan_stats_retention_days", 30),
+                default=30,
+                min_v=7,
+                max_v=365,
+            )
+
+            users_total: int | None = None
+            users_enabled: int | None = None
+            try:
+                cfg = ad_cfg_from_settings(st)
+                if cfg:
+                    c = ADClient(cfg)
+                    ok, _ = c.service_bind()
+                    if ok:
+                        total, enabled = c.count_users_total_and_enabled()
+                        users_total = int(total)
+                        users_enabled = int(enabled)
+            except Exception:
+                log.warning("Не удалось получить AD-метрики для графика статистики", exc_info=True)
+
             summary = (
                 f"OK. Цели: {res.total_ips}. "
                 f"Проверено (после probe): {res.alive}. "
@@ -200,6 +223,17 @@ def run_network_scan() -> dict:
             st.net_scan_last_run_ts = finished
             st.net_scan_last_summary = (summary or "")[:512]
             st.net_scan_lock_ts = None
+
+            db.add(
+                ScanStatsHistory(
+                    ts=finished,
+                    users_total=users_total,
+                    users_enabled=users_enabled,
+                    users_online=int(updated_users),
+                )
+            )
+            cutoff_hist = finished - timedelta(days=retention_days)
+            db.execute(delete(ScanStatsHistory).where(ScanStatsHistory.ts < cutoff_hist))
             db.commit()
 
         return {"status": "ok", "summary": summary[:512]}

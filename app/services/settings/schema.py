@@ -6,7 +6,7 @@ from typing import Literal, Any
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-CURRENT_SCHEMA_VERSION = 3
+CURRENT_SCHEMA_VERSION = 4
 
 MAX_NETSCAN_CIDRS = 64  # hard limit for net_scan.cidrs
 
@@ -116,6 +116,7 @@ class NetScanSettings(BaseModel):
     concurrency: int = Field(default=64, ge=1, le=512)
     method_timeout_s: int = Field(default=20, ge=1, le=180)
     probe_timeout_ms: int = Field(default=350, ge=50, le=5000)
+    stats_retention_days: int = Field(default=30, ge=7, le=365)
 
     @field_validator("cidrs")
     @classmethod
@@ -207,6 +208,18 @@ def upgrade_payload(payload: dict) -> dict:
             payload["net_scan"]["dns_server"] = ""
 
         payload["schema_version"] = 3
+
+    # v3 -> v4 changes:
+    # - добавлено поле net_scan.stats_retention_days
+    if v < 4:
+        if "net_scan" not in payload:
+            payload["net_scan"] = {}
+        if not isinstance(payload["net_scan"], dict):
+            payload["net_scan"] = {}
+        if "stats_retention_days" not in payload["net_scan"]:
+            payload["net_scan"]["stats_retention_days"] = 30
+
+        payload["schema_version"] = 4
 
     # normalize
     try:

@@ -220,6 +220,11 @@
                     <input class="form-control" name="net_scan_probe_timeout_ms" type="number" min="100" max="1500" value="{{ st.net_scan_probe_timeout_ms or 350 }}">
                     <div class="form-text">Быстрая проверка (445/5985/5986/135), чтобы пропускать не-Windows.</div>
                   </div>
+                  <div class="col-md-4">
+                    <label class="form-label fw-semibold">Глубина графика (дней)</label>
+                    <input class="form-control" name="net_scan_stats_retention_days" type="number" min="7" max="365" value="{{ st.net_scan_stats_retention_days or 30 }}">
+                    <div class="form-text">История для графика статистики: от 7 до 365 дней.</div>
+                  </div>
                 </div>
               </details>
             </div>

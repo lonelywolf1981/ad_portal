@@ -70,6 +70,7 @@ class AppSettings(Base):
     # Per-method timeout used by background scan (WinRM/WMI/SMB). Separate from host_query_timeout_s.
     net_scan_method_timeout_s: Mapped[int] = mapped_column(Integer, default=20, nullable=False)
     net_scan_probe_timeout_ms: Mapped[int] = mapped_column(Integer, default=350, nullable=False)
+    net_scan_stats_retention_days: Mapped[int] = mapped_column(Integer, default=30, nullable=False)
 
     net_scan_last_run_ts: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     net_scan_last_summary: Mapped[str] = mapped_column(String(512), default="", nullable=False)
@@ -119,3 +120,14 @@ class HostUserMap(Base):
     ip: Mapped[str] = mapped_column(String(64), default="", nullable=False)
     method: Mapped[str] = mapped_column(String(32), default="", nullable=False)
     last_seen_ts: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class ScanStatsHistory(Base):
+    __tablename__ = "scan_stats_history"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    ts: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+    users_total: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    users_enabled: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    users_online: Mapped[int | None] = mapped_column(Integer, nullable=True)
