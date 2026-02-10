@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import io
+import threading
+import time
+import logging
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
@@ -18,6 +21,28 @@ from ..viewmodels.user_details import build_detail_items
 from ..webui import htmx_alert, templates, ui_result
 
 router = APIRouter()
+log = logging.getLogger(__name__)
+_RDNS_TTL_S = 300.0
+_RDNS_CACHE_LOCK = threading.Lock()
+_RDNS_CACHE: dict[str, tuple[float, str]] = {}
+
+
+def _get_cached_short_rdns(ip: str, nets) -> str:
+    now = time.monotonic()
+    with _RDNS_CACHE_LOCK:
+        row = _RDNS_CACHE.get(ip)
+        if row and row[0] > now:
+            return row[1]
+
+    value = ""
+    try:
+        value = short_hostname(reverse_dns(ip, nets=nets, timeout_s=0.8))
+    except Exception:
+        value = ""
+
+    with _RDNS_CACHE_LOCK:
+        _RDNS_CACHE[ip] = (now + _RDNS_TTL_S, value)
+    return value
 
 
 @router.get("/users/ad-groups", response_class=HTMLResponse)
@@ -177,6 +202,8 @@ def users_search(request: Request, q: str = ""):
                 net_cidrs_text = ""
 
         rdns_cache: dict[str, str] = {}
+        rdns_lookups = 0
+        max_rdns_lookups = 10
 
         for u in users:
             key = normalize_login(u.get("login", ""))
@@ -197,12 +224,11 @@ def users_search(request: Request, q: str = ""):
             # Backfill hostname via PTR (per-subnet DNS) if only IP is known
             if not host_short and ip_raw and nets:
                 if ip_raw not in rdns_cache:
-                    try:
-                        rdns_cache[ip_raw] = short_hostname(
-                            reverse_dns(ip_raw, nets=nets, timeout_s=0.8)
-                        )
-                    except Exception:
+                    if rdns_lookups >= max_rdns_lookups:
                         rdns_cache[ip_raw] = ""
+                    else:
+                        rdns_cache[ip_raw] = _get_cached_short_rdns(ip_raw, nets)
+                        rdns_lookups += 1
                 host_short = rdns_cache.get(ip_raw, "")
 
             u["found_host"] = host_short
@@ -210,7 +236,7 @@ def users_search(request: Request, q: str = ""):
             u["found_ts"] = fmt_dt_ru(p.last_seen_ts)
     except Exception:
         # Presence is optional; never break user search on errors.
-        pass
+        log.warning("Не удалось обогатить карточки пользователей данными presence", exc_info=True)
 
     return templates.TemplateResponse(
         "users_results.html",

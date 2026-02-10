@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
@@ -9,6 +11,7 @@ from ..webui import htmx_alert, set_session_cookie, templates, ui_result
 
 
 router = APIRouter()
+log = logging.getLogger(__name__)
 
 
 @router.get("/login", response_class=HTMLResponse)
@@ -79,7 +82,7 @@ async def login_local(request: Request):
             if not bool(typed.is_initialized):
                 redirect_url = "/settings?mode=init"
         except Exception:
-            pass
+            log.warning("Не удалось определить is_initialized после локального логина", exc_info=True)
 
         if _is_hx(request):
             resp: Response = Response(status_code=200, headers={"HX-Redirect": redirect_url})
@@ -146,7 +149,7 @@ async def login_ad(request: Request):
             if not bool(typed.is_initialized):
                 redirect_url = "/settings?mode=init"
         except Exception:
-            pass
+            log.warning("Не удалось определить is_initialized после AD-логина", exc_info=True)
 
         if _is_hx(request):
             resp: Response = Response(status_code=200, headers={"HX-Redirect": redirect_url})
