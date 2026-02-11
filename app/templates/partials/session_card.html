@@ -45,10 +45,7 @@
             <button type="button" class="btn btn-outline-primary active" data-chart-metric="online">Онлайн</button>
           </div>
           <select class="form-select form-select-sm" id="stats-period-select" style="width:auto;">
-            <option value="5m">Последние 5 минут</option>
-            <option value="15m" selected>Последние 15 минут</option>
-            <option value="30m">Последние 30 минут</option>
-            <option value="1h">Последний 1 час</option>
+            <option value="1h" selected>Последний 1 час</option>
             <option value="3h">Последние 3 часа</option>
             <option value="6h">Последние 6 часов</option>
             <option value="12h">Последние 12 часов</option>
@@ -105,9 +102,6 @@
     online: "Онлайн"
   };
   const presetMinutes = {
-    "5m": 5,
-    "15m": 15,
-    "30m": 30,
     "1h": 60,
     "3h": 180,
     "6h": 360,
@@ -128,7 +122,7 @@
   });
 
   let metric = "online";
-  let period = "15m";
+  let period = "1h";
   let collapsed = false;
   const lsMetricKey = "ad_portal_stats_metric";
   const lsPeriodKey = "ad_portal_stats_period";
@@ -288,7 +282,7 @@
     ctx.textAlign = "start";
 
     // Filled area under the line.
-    ctx.fillStyle = "{{ st.chart_colors.fill_color if st and st.chart_colors and st.chart_colors.fill_color else 'rgba(13,110,253,0.16)' }}";
+    ctx.fillStyle = "{{ stats_chart_fill_color or 'rgba(13,110,253,0.16)' }}";
     ctx.beginPath();
     pts.forEach(function(p, i){
       const tsMs = Date.parse(p.ts || "");
@@ -304,7 +298,7 @@
     ctx.fill();
 
     // Main line.
-    ctx.strokeStyle = "{{ st.chart_colors.line_color if st and st.chart_colors and st.chart_colors.line_color else '#0d6efd' }}";
+    ctx.strokeStyle = "{{ stats_chart_line_color or '#0d6efd' }}";
     ctx.lineWidth = 2;
     ctx.beginPath();
     pts.forEach(function(p, i){
@@ -315,7 +309,7 @@
     });
     ctx.stroke();
 
-    ctx.fillStyle = "{{ st.chart_colors.point_color if st and st.chart_colors and st.chart_colors.point_color else '#0d6efd' }}";
+    ctx.fillStyle = "{{ stats_chart_point_color or '#0d6efd' }}";
     pts.forEach(function(p){
       const tsMs = Date.parse(p.ts || "");
       const xv = xByTs(tsMs), yv = y(Number(p[metric]));
@@ -379,7 +373,7 @@
     } catch (_e) {}
 
     if (period !== "custom" && (!presetMinutes[period] || presetMinutes[period] > maxMinutes)) {
-      period = "15m";
+      period = "1h";
       if (presetMinutes[period] > maxMinutes) period = "7d";
       if (presetMinutes[period] > maxMinutes) period = "custom";
     }
@@ -387,7 +381,7 @@
     if (period === "custom") {
       const now = Date.now();
       if (!dateTo.value) dateTo.value = toLocalInputValue(now);
-      if (!dateFrom.value) dateFrom.value = toLocalInputValue(now - (15 * 60 * 1000));
+      if (!dateFrom.value) dateFrom.value = toLocalInputValue(now - (60 * 60 * 1000));
     }
   }
 
@@ -401,7 +395,7 @@
   });
 
   periodSelect.addEventListener("change", function(){
-    period = periodSelect.value || "15m";
+    period = periodSelect.value || "1h";
     setPeriodUI();
     saveState();
     draw();
