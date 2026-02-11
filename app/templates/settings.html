@@ -271,6 +271,29 @@
             </div>
 
             <div class="col-12">
+              <details>
+                <summary class="small">Цвета графика (необязательно)</summary>
+                <div class="row g-3 mt-2">
+                  <div class="col-md-4">
+                    <label class="form-label fw-semibold">Цвет линии</label>
+                    <input class="form-control" name="net_scan_chart_line_color" type="color" value="{{ st.net_scan_chart_line_color or '#0d6efd' }}">
+                    <div class="form-text">Цвет линии графика</div>
+                  </div>
+                  <div class="col-md-4">
+                    <label class="form-label fw-semibold">Цвет заливки</label>
+                    <input class="form-control" name="net_scan_chart_fill_color" type="text" value="{{ st.net_scan_chart_fill_color or 'rgba(13,110,253,0.16)' }}">
+                    <div class="form-text">Цвет заливки под линией графика (HEX или RGBA)</div>
+                  </div>
+                  <div class="col-md-4">
+                    <label class="form-label fw-semibold">Цвет точек</label>
+                    <input class="form-control" name="net_scan_chart_point_color" type="color" value="{{ st.net_scan_chart_point_color or '#0d6efd' }}">
+                    <div class="form-text">Цвет точек на графике</div>
+                  </div>
+                </div>
+              </details>
+            </div>
+
+            <div class="col-12">
               <div class="d-flex flex-column flex-sm-row gap-2 align-items-start">
                 <button
                   type="button"

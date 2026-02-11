@@ -108,4 +108,12 @@ def ensure_schema() -> None:
             add("ALTER TABLE app_settings ADD COLUMN last_ad_test_ok BOOLEAN NOT NULL DEFAULT 0")
         if "last_ad_test_message" not in cols:
             add("ALTER TABLE app_settings ADD COLUMN last_ad_test_message VARCHAR(512) NOT NULL DEFAULT ''")
+
+        # Chart colors
+        if "net_scan_chart_line_color" not in cols:
+            add("ALTER TABLE app_settings ADD COLUMN net_scan_chart_line_color VARCHAR(20) NOT NULL DEFAULT '#0d6efd'")
+        if "net_scan_chart_fill_color" not in cols:
+            add("ALTER TABLE app_settings ADD COLUMN net_scan_chart_fill_color VARCHAR(30) NOT NULL DEFAULT 'rgba(13,110,253,0.16)'")
+        if "net_scan_chart_point_color" not in cols:
+            add("ALTER TABLE app_settings ADD COLUMN net_scan_chart_point_color VARCHAR(20) NOT NULL DEFAULT '#0d6efd'")
         

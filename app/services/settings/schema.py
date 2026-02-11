@@ -6,7 +6,7 @@ from typing import Literal, Any
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-CURRENT_SCHEMA_VERSION = 5
+CURRENT_SCHEMA_VERSION = 6
 
 MAX_NETSCAN_CIDRS = 64  # hard limit for net_scan.cidrs
 
@@ -185,6 +185,39 @@ class NetScanSettings(BaseModel):
         return canon
 
 
+class ChartColorsSettings(BaseModel):
+    line_color: str = Field(default="#0d6efd", max_length=20)
+    fill_color: str = Field(default="rgba(13,110,253,0.16)", max_length=30)
+    point_color: str = Field(default="#0d6efd", max_length=20)
+
+    @field_validator("line_color", "point_color")
+    @classmethod
+    def _validate_hex_color(cls, v: str) -> str:
+        """Проверяет, что цвет задан в формате HEX (#RRGGBB)."""
+        s = (v or "").strip()
+        if not s:
+            return s
+        # Проверяем формат HEX (#RGB или #RRGGBB)
+        if not re.fullmatch(r"#([A-Fa-f0-9]{3}|[A-Fa-f0-9]{6})", s):
+            raise ValueError(f"Некорректный цвет в формате HEX: {s}")
+        return s
+
+    @field_validator("fill_color")
+    @classmethod
+    def _validate_rgba_color(cls, v: str) -> str:
+        """Проверяет, что цвет задан в формате RGBA (rgba(R,G,B,A))."""
+        s = (v or "").strip()
+        if not s:
+            return s
+        # Проверяем формат RGBA
+        rgba_pattern = r"rgba\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*,\s*(0|0?\.\d+|1(\.0)?)\s*\)"
+        if not re.fullmatch(rgba_pattern, s, re.IGNORECASE):
+            # Также проверяем формат HEX
+            if not re.fullmatch(r"#([A-Fa-f0-9]{3}|[A-Fa-f0-9]{6})", s):
+                raise ValueError(f"Некорректный цвет в формате RGBA или HEX: {s}")
+        return s
+
+
 
 def upgrade_payload(payload: dict) -> dict:
     """Best-effort upgrade for imported JSON (auto-upgrade on read)."""
@@ -251,6 +284,19 @@ def upgrade_payload(payload: dict) -> dict:
         ip_phones.setdefault("ami_timeout_s", 5)
         payload["schema_version"] = 5
 
+    # v5 -> v6 changes:
+    # - добавлен раздел chart_colors для настройки цветов графика
+    if v < 6:
+        if "chart_colors" not in payload:
+            payload["chart_colors"] = {}
+        if not isinstance(payload["chart_colors"], dict):
+            payload["chart_colors"] = {}
+        chart_colors = payload["chart_colors"]
+        chart_colors.setdefault("line_color", "#0d6efd")
+        chart_colors.setdefault("fill_color", "rgba(13,110,253,0.16)")
+        chart_colors.setdefault("point_color", "#0d6efd")
+        payload["schema_version"] = 6
+
     # normalize
     try:
         payload["schema_version"] = int(payload.get("schema_version") or CURRENT_SCHEMA_VERSION)
@@ -277,6 +323,7 @@ class AppSettingsSchema(BaseModel):
     host_query: HostQuerySettings = Field(default_factory=HostQuerySettings)
     ip_phones: IPPhonesSettings = Field(default_factory=IPPhonesSettings)
     net_scan: NetScanSettings = Field(default_factory=NetScanSettings)
+    chart_colors: ChartColorsSettings = Field(default_factory=ChartColorsSettings)
 
     @property
     def is_initialized(self) -> bool:

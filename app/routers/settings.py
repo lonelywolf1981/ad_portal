@@ -141,6 +141,11 @@ def _coerce_settings_payload(payload: dict) -> object:
             "probe_timeout_ms": int(payload.get("net_scan_probe_timeout_ms") or 350),
             "stats_retention_days": int(payload.get("net_scan_stats_retention_days") or 30),
         },
+        "chart_colors": {
+            "line_color": payload.get("net_scan_chart_line_color", "#0d6efd"),
+            "fill_color": payload.get("net_scan_chart_fill_color", "rgba(13,110,253,0.16)"),
+            "point_color": payload.get("net_scan_chart_point_color", "#0d6efd"),
+        },
     }
 
     return AppSettingsSchema.model_validate(data)
@@ -315,6 +320,14 @@ def _effective_settings_from_form(db, form: dict) -> AppSettingsSchema:
             )
         except Exception:
             log.warning("Некорректное значение net_scan_stats_retention_days", exc_info=True)
+
+    # Chart colors
+    if form.get("net_scan_chart_line_color") is not None:
+        patch["chart_colors"]["line_color"] = form.get("net_scan_chart_line_color") or patch["chart_colors"]["line_color"]
+    if form.get("net_scan_chart_fill_color") is not None:
+        patch["chart_colors"]["fill_color"] = form.get("net_scan_chart_fill_color") or patch["chart_colors"]["fill_color"]
+    if form.get("net_scan_chart_point_color") is not None:
+        patch["chart_colors"]["point_color"] = form.get("net_scan_chart_point_color") or patch["chart_colors"]["point_color"]
 
     return AppSettingsSchema.model_validate(patch)
 
@@ -550,6 +563,9 @@ def settings_save(
     net_scan_method_timeout_s: int = Form(20),
     net_scan_probe_timeout_ms: int = Form(350),
     net_scan_stats_retention_days: int = Form(30),
+    net_scan_chart_line_color: str = Form("#0d6efd"),
+    net_scan_chart_fill_color: str = Form("rgba(13,110,253,0.16)"),
+    net_scan_chart_point_color: str = Form("#0d6efd"),
     allowed_app_group_dns: list[str] = Form([]),
     allowed_settings_group_dns: list[str] = Form([]),
 ):
@@ -600,6 +616,9 @@ def settings_save(
                     "net_scan_method_timeout_s": net_scan_method_timeout_s,
                     "net_scan_probe_timeout_ms": net_scan_probe_timeout_ms,
                     "net_scan_stats_retention_days": net_scan_stats_retention_days,
+                    "net_scan_chart_line_color": net_scan_chart_line_color,
+                    "net_scan_chart_fill_color": net_scan_chart_fill_color,
+                    "net_scan_chart_point_color": net_scan_chart_point_color,
                     "allowed_app_group_dns": allowed_app_group_dns,
                     "allowed_settings_group_dns": allowed_settings_group_dns,
                 },
