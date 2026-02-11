@@ -90,6 +90,9 @@ def _row_matches_query(row: dict[str, Any], query: str) -> bool:
     ext = str(row.get("extension") or "").lower()
     if q in ext:
         return True
+    ip = str(row.get("ip") or "").lower()
+    if q in ip:
+        return True
 
     for user in (row.get("users") or []):
         fio = str(user.get("fio") or "").lower()

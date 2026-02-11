@@ -17,7 +17,7 @@
         type="text"
         class="form-control"
         name="q"
-        placeholder="Поиск по части номера, ФИО или логина"
+        placeholder="Поиск по номеру, IP, ФИО или логину"
         autocomplete="off"
         value="{{ _q }}"
       >
@@ -79,7 +79,7 @@
 
     {% if _q %}
       <div class="small text-secondary mb-2">
-        Фильтр: <code>{{ _q }}</code>. Показано {{ d.get("total", 0) }} из {{ badge_total }}.
+        Фильтр (номер, IP, ФИО, логин): <code>{{ _q }}</code>. Показано {{ d.get("total", 0) }} из {{ badge_total }}.
       </div>
     {% endif %}
 
