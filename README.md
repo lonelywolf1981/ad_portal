@@ -41,6 +41,14 @@ AD Portal — это веб-приложение, которое предост�
   - **пустые поля не выводятся**;
   - группы отображаются «человеко‑удобно» (короткими именами).
 
+### Управление AD (новая функция)
+- **Создание пользователей**: пошаговый мастер создания новых пользователей с выбором OU и шаблонов
+- **Редактирование пользователей**: изменение атрибутов, сброс/установка паролей, блокировка/разблокировка аккаунтов
+- **Управление группами**: просмотр, создание, удаление групп, добавление/удаление пользователей из групп
+- **Создание групп**: возможность создавать новые группы с различными настройками (global/domain local/universal, security/distribution)
+- **Поиск и сопоставление**: быстрый поиск пользователей и групп для добавления в другие группы
+- **Аудит операций**: все операции управления AD логируются для аудита безопасности
+
 ### Кто залогинен на хосте (WinRM/WMI/SMB)
 - По введённому **hostname** (например, `prod-00835`) или **IP** определяется, кто залогинен на удалённой Windows‑машине.
 - Если введено короткое имя хоста и в настройках задан домен, пробуются цели:
@@ -72,6 +80,27 @@ AD Portal — это веб-приложение, которое предост�
 - В таблице хранится **последний** найденный хост для логина (если пользователь найден на нескольких хостах, останется последнее обновление).
 - Точность зависит от прав учетной записи, указанной в «Кто залогинен на хосте».
 
+### Сопоставление пользователей и хостов (новая функция)
+- **Вкладка "Сопоставления"**: отображение сопоставлений между пользователями и хостами, найденными при сканировании
+- **Поиск и фильтрация**: возможность поиска сопоставлений по имени хоста, IP, логину пользователя
+- **Сортировка**: сортировка результатов по различным критериям (хост, IP, логин, время обнаружения)
+- **Экспорт данных**: экспорт сопоставлений в формат Excel для анализа
+- **Статистика сканирования**: графики и статистика истории сканирования сети
+
+### Интеграция с IP-телефонами (новая функция)
+- **Интеграция с Asterisk**: получение информации о доступных SIP-устройствах через AMI-интерфейс
+- **Сопоставление с пользователями AD**: автоматическое сопоставление IP-телефонов с пользователями Active Directory по атрибуту ipPhone
+- **Поиск и фильтрация**: возможность поиска телефонов по номеру, IP-адресу или имени пользователя
+- **Комментарии**: добавление пользовательских комментариев к IP-телефонам для дополнительной информации
+- **Статус устройств**: отображение статуса доступности IP-телефонов (Avail/NonQual/Unavail/Unknown)
+
+### Улучшения пользовательского интерфейса
+- **HTMX-интерфейс**: динамические обновления без перезагрузки страницы для более плавного взаимодействия
+- **Интерактивные элементы**: модальные окна, вкладки и фильтры для удобного управления данными
+- **Улучшенная валидация**: клиентская и серверная валидация форм с понятными сообщениями об ошибках
+- **Адаптивный дизайн**: корректное отображение на различных устройствах и размерах экрана
+- **Графики статистики**: визуализация данных сканирования сети и активности пользователей
+
 ## 🔧 Технологии
 
 - Backend: **FastAPI**, **SQLAlchemy**, **SQLite**
@@ -81,6 +110,7 @@ AD Portal — это веб-приложение, которое предост�
 - Reverse proxy: **Nginx**
 - Runtime: **Docker Compose**
 - В составе compose присутствуют **Redis + Celery worker + Celery beat** (фоновые задачи и расписание).
+- **Защита безопасности**: реализована защита от CSRF-атак, безопасное хранение паролей с использованием Argon2, шифрование конфиденциальных данных в базе данных
 
 ## 🚀 Установка
 
@@ -174,36 +204,127 @@ docker compose up -d --build
 ad_portal/
 ├── app/
 │   ├── __init__.py
+│   ├── ad/
+│   │   ├── __init__.py
+│   │   ├── client.py
+│   │   ├── models.py
+│   │   └── utils.py
 │   ├── ad_utils.py
+│   ├── bootstrap.py
 │   ├── celery_app.py
 │   ├── crypto.py
 │   ├── db.py
 │   ├── deps.py
 │   ├── env_settings.py
+│   ├── host_query/
+│   │   ├── __init__.py
+│   │   ├── api.py
+│   │   ├── credentials.py
+│   │   ├── methods.py
+│   │   ├── models.py
+│   │   ├── targets.py
+│   │   └── utils.py
 │   ├── main.py
+│   ├── mappings.py
 │   ├── models.py
+│   ├── net_scan.py
+│   ├── presence.py
 │   ├── repo.py
+│   ├── routers/
+│   │   ├── __init__.py
+│   │   ├── ad_management.py
+│   │   ├── auth.py
+│   │   ├── health.py
+│   │   ├── hosts.py
+│   │   ├── index.py
+│   │   ├── ip_phones.py
+│   │   ├── presence.py
+│   │   ├── settings.py
+│   │   └── users.py
 │   ├── schema.py
 │   ├── security.py
+│   ├── services/
+│   │   ├── __init__.py
+│   │   ├── auth/
+│   │   ├── settings/
+│   │   ├── ad.py
+│   │   ├── audit.py
+│   │   ├── groups.py
+│   │   ├── ip_phones.py
+│   │   └── local_auth.py
 │   ├── session.py
+│   ├── static/
+│   │   ├── app.css
+│   │   └── theme.js
+│   ├── tasks.py
+│   ├── templates/
+│   │   ├── ad_management_create_group_modal.html
+│   │   ├── ad_management_create_user_step1.html
+│   │   ├── ad_management_create_user_step2.html
+│   │   ├── ad_management_create_user_step3.html
+│   │   ├── ad_management_create_user_step4.html
+│   │   ├── ad_management_delete_group_modal.html
+│   │   ├── ad_management_delete_user_modal.html
+│   │   ├── ad_management_fragment.html
+│   │   ├── ad_management_group_edit.html
+│   │   ├── ad_management_group_members.html
+│   │   ├── ad_management_group_search_members.html
+│   │   ├── ad_management_groups_tab.html
+│   │   ├── ad_management_groups.html
+│   │   ├── ad_management_search_users.html
+│   │   ├── ad_management_user_edit_groups_search.html
+│   │   ├── ad_management_user_edit_groups.html
+│   │   ├── ad_management_user_edit.html
+│   │   ├── ad_management_users_tab.html
+│   │   ├── ad_management_users.html
+│   │   ├── ad_management_wizard_groups_search.html
+│   │   ├── ad_management.html
+│   │   ├── base_app.html
+│   │   ├── base_public.html
+│   │   ├── host_logon_results.html
+│   │   ├── index.html
+│   │   ├── ip_phones_fragment.html
+│   │   ├── login.html
+│   │   ├── partials/
+│   │   │   ├── ad_disabled_users.html
+│   │   │   ├── ad_group_members.html
+│   │   │   ├── ad_groups_list.html
+│   │   │   ├── ad_no_pin_users.html
+│   │   │   ├── htmx_alert.html
+│   │   │   ├── ip_phone_comment_cell.html
+│   │   │   ├── ip_phones_results.html
+│   │   │   ├── main_tabs.html
+│   │   │   ├── net_scan_poll.html
+│   │   │   ├── session_card.html
+│   │   │   ├── settings_export_import.html
+│   │   │   ├── settings_validate_tools.html
+│   │   │   ├── user_modal_script.html
+│   │   │   └── user_modal.html
+│   │   ├── presence_results.html
+│   │   ├── settings_groups.html
+│   │   ├── settings_init.html
+│   │   ├── settings.html
+│   │   ├── user_details.html
+│   │   ├── user_view_modal.html
+│   │   ├── user_view.html
+│   │   ├── users_results.html
 │   ├── timezone_utils.py
 │   ├── utils/
+│   │   ├── __init__.py
+│   │   ├── datetime_fmt.py
+│   │   ├── dn.py
+│   │   ├── net.py
+│   │   ├── numbers.py
+│   │   └── tcp_probe.py
 │   ├── viewmodels/
-│   ├── webui.py
-│   ├── ad/
-│   ├── host_query/
-│   ├── net_scan.py
-│   ├── routers/
-│   ├── services/
-│   ├── static/
-│   ├── tasks.py
-│   └── templates/
-├── nginx/
+│   │   └── user_details.py
+│   └── webui.py
 ├── docker-compose.yml
 ├── Dockerfile
+├── nginx/
 ├── README.md
 ├── requirements.txt
-└── data/
+└── .gitignore
 ```
 
 ## 🤝 Вклад в развитие
@@ -236,6 +357,20 @@ ad_portal/
 ## 🙏 Благодарности
 
 Спасибо всем, кто внес вклад в развитие этого проекта!
+
+## 🤖 Разработка с использованием ИИ
+
+Этот проект был частично разработан с использованием современных языковых моделей:
+
+<div align="center">
+  
+[![ChatGPT](https://img.shields.io/badge/-ChatGPT-10A1D4?style=for-the-badge&logo=openai&logoColor=white)](https://chat.openai.com/)
+[![Qwen](https://img.shields.io/badge/-Qwen-orange?style=for-the-badge&logo=openai&logoColor=white)](https://www.aliyun.com/product/dashscope)
+[![Claude](https://img.shields.io/badge/-Claude-8A2BE2?style=for-the-badge&logo=anthropic&logoColor=white)](https://claude.ai)
+
+</div>
+
+Проект был разработан с применением искусственного интеллекта, включая ChatGPT (Codex), Qwen CLI и Claude-Code CLI, для ускорения процесса разработки, рефакторинга кода и документирования.
 
 ---
 
