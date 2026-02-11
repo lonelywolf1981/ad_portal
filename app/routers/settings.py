@@ -79,6 +79,63 @@ def _normalize_pem(v: str | None) -> str:
     return s.replace("\r\n", "\n").replace("\r", "\n")
 
 
+def _parse_alpha(v: str | float | int | None, default: float = 0.16) -> float:
+    try:
+        a = float(v)
+    except Exception:
+        a = float(default)
+    if a < 0:
+        return 0.0
+    if a > 1:
+        return 1.0
+    return a
+
+
+def _format_alpha(a: float) -> str:
+    s = f"{a:.2f}".rstrip("0").rstrip(".")
+    return s or "0"
+
+
+def _hex_to_rgb(color: str | None) -> tuple[int, int, int]:
+    s = (color or "").strip()
+    m6 = re.fullmatch(r"#([A-Fa-f0-9]{6})", s)
+    if m6:
+        h = m6.group(1)
+        return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+    m3 = re.fullmatch(r"#([A-Fa-f0-9]{3})", s)
+    if m3:
+        h = m3.group(1)
+        return int(h[0] * 2, 16), int(h[1] * 2, 16), int(h[2] * 2, 16)
+    return 13, 110, 253
+
+
+def _compose_rgba_from_hex(color: str | None, alpha: str | float | int | None) -> str:
+    r, g, b = _hex_to_rgb(color)
+    a = _parse_alpha(alpha)
+    return f"rgba({r},{g},{b},{_format_alpha(a)})"
+
+
+def _split_fill_color_for_form(fill_color: str | None) -> tuple[str, str]:
+    s = (fill_color or "").strip()
+    m = re.fullmatch(
+        r"rgba\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(0|0?\.\d+|1(?:\.0+)?)\s*\)",
+        s,
+        re.IGNORECASE,
+    )
+    if m:
+        r = max(0, min(255, int(m.group(1))))
+        g = max(0, min(255, int(m.group(2))))
+        b = max(0, min(255, int(m.group(3))))
+        a = _parse_alpha(m.group(4))
+        return f"#{r:02x}{g:02x}{b:02x}", _format_alpha(a)
+
+    if re.fullmatch(r"#([A-Fa-f0-9]{3}|[A-Fa-f0-9]{6})", s):
+        r, g, b = _hex_to_rgb(s)
+        return f"#{r:02x}{g:02x}{b:02x}", _format_alpha(0.16)
+
+    return "#0d6efd", _format_alpha(0.16)
+
+
 def _coerce_settings_payload(payload: dict) -> object:
     """Coerce legacy flat payload into the new typed settings schema.
 
@@ -253,6 +310,7 @@ def _effective_settings_from_form(db, form: dict) -> AppSettingsSchema:
         "host_query": cur.host_query.model_dump(),
         "ip_phones": cur.ip_phones.model_dump(),
         "net_scan": cur.net_scan.model_dump(),
+        "chart_colors": cur.chart_colors.model_dump(),
     }
 
     # AD
@@ -325,7 +383,11 @@ def _effective_settings_from_form(db, form: dict) -> AppSettingsSchema:
     if form.get("net_scan_chart_line_color") is not None:
         patch["chart_colors"]["line_color"] = form.get("net_scan_chart_line_color") or patch["chart_colors"]["line_color"]
     if form.get("net_scan_chart_fill_color") is not None:
-        patch["chart_colors"]["fill_color"] = form.get("net_scan_chart_fill_color") or patch["chart_colors"]["fill_color"]
+        alpha = form.get("net_scan_chart_fill_alpha")
+        if alpha is not None:
+            patch["chart_colors"]["fill_color"] = _compose_rgba_from_hex(form.get("net_scan_chart_fill_color"), alpha)
+        else:
+            patch["chart_colors"]["fill_color"] = form.get("net_scan_chart_fill_color") or patch["chart_colors"]["fill_color"]
     if form.get("net_scan_chart_point_color") is not None:
         patch["chart_colors"]["point_color"] = form.get("net_scan_chart_point_color") or patch["chart_colors"]["point_color"]
 
@@ -510,6 +572,9 @@ def settings_page(request: Request, saved: int = 0, mode: str = ""):
 
         selected_app = set(split_group_dns(st.allowed_app_group_dns))
         selected_settings = set(split_group_dns(st.allowed_settings_group_dns))
+        chart_fill_color_hex, chart_fill_alpha = _split_fill_color_for_form(
+            getattr(st, "net_scan_chart_fill_color", "rgba(13,110,253,0.16)")
+        )
 
         return templates.TemplateResponse(
             "settings.html",
@@ -529,6 +594,8 @@ def settings_page(request: Request, saved: int = 0, mode: str = ""):
                 "net_scan_is_running": net_scan_is_running,
                 "online_users_last_scan": online_users_last_scan,
                 "logged_users_found_last_scan": logged_users_found_last_scan,
+                "chart_fill_color_hex": chart_fill_color_hex,
+                "chart_fill_alpha": chart_fill_alpha,
             },
         )
 
@@ -564,7 +631,8 @@ def settings_save(
     net_scan_probe_timeout_ms: int = Form(350),
     net_scan_stats_retention_days: int = Form(30),
     net_scan_chart_line_color: str = Form("#0d6efd"),
-    net_scan_chart_fill_color: str = Form("rgba(13,110,253,0.16)"),
+    net_scan_chart_fill_color: str = Form("#0d6efd"),
+    net_scan_chart_fill_alpha: str = Form("0.16"),
     net_scan_chart_point_color: str = Form("#0d6efd"),
     allowed_app_group_dns: list[str] = Form([]),
     allowed_settings_group_dns: list[str] = Form([]),
@@ -586,6 +654,7 @@ def settings_save(
             )
 
         st = get_or_create_settings(db)
+        fill_color_rgba = _compose_rgba_from_hex(net_scan_chart_fill_color, net_scan_chart_fill_alpha)
         try:
             _call_save_settings_compat(
                 db,
@@ -617,7 +686,7 @@ def settings_save(
                     "net_scan_probe_timeout_ms": net_scan_probe_timeout_ms,
                     "net_scan_stats_retention_days": net_scan_stats_retention_days,
                     "net_scan_chart_line_color": net_scan_chart_line_color,
-                    "net_scan_chart_fill_color": net_scan_chart_fill_color,
+                    "net_scan_chart_fill_color": fill_color_rgba,
                     "net_scan_chart_point_color": net_scan_chart_point_color,
                     "allowed_app_group_dns": allowed_app_group_dns,
                     "allowed_settings_group_dns": allowed_settings_group_dns,

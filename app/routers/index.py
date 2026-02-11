@@ -75,11 +75,17 @@ def index(request: Request):
     stats_history_points: list[dict] = []
     stats_retention_days = 30
     stats_scans_total = 0
+    stats_chart_line_color = "#0d6efd"
+    stats_chart_fill_color = "rgba(13,110,253,0.16)"
+    stats_chart_point_color = "#0d6efd"
 
     try:
         with db_session() as db:
             st = get_or_create_settings(db)
             stats_retention_days = max(7, min(365, int(getattr(st, "net_scan_stats_retention_days", 30) or 30)))
+            stats_chart_line_color = getattr(st, "net_scan_chart_line_color", "#0d6efd") or "#0d6efd"
+            stats_chart_fill_color = getattr(st, "net_scan_chart_fill_color", "rgba(13,110,253,0.16)") or "rgba(13,110,253,0.16)"
+            stats_chart_point_color = getattr(st, "net_scan_chart_point_color", "#0d6efd") or "#0d6efd"
 
             net_scan_enabled = bool(getattr(st, "net_scan_enabled", False))
             cidrs_txt = (getattr(st, "net_scan_cidrs", "") or "").strip()
@@ -164,6 +170,9 @@ def index(request: Request):
             "stats_history_points": stats_history_points,
             "stats_retention_days": stats_retention_days,
             "stats_scans_total": stats_scans_total,
+            "stats_chart_line_color": stats_chart_line_color,
+            "stats_chart_fill_color": stats_chart_fill_color,
+            "stats_chart_point_color": stats_chart_point_color,
         },
     )
 
