@@ -1,17 +1,28 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse
+from sqlalchemy import select
 
 from ..deps import require_initialized_or_redirect
+from ..models import IpPhoneComment
+from ..repo import db_session
 from ..services.ip_phones import get_avail_with_ad
 from ..utils.net import ip_key, natural_key
 from ..webui import templates
 
 router = APIRouter()
 log = logging.getLogger(__name__)
+
+
+def _load_comments_map() -> dict[str, str]:
+    """Загрузить все комментарии IP-телефонов в виде {extension: comment}."""
+    with db_session() as db:
+        rows = db.execute(select(IpPhoneComment)).scalars().all()
+        return {r.extension: r.comment for r in rows}
 
 
 @router.get("/ip-phones", response_class=HTMLResponse)
@@ -46,6 +57,11 @@ def ip_phones_avail_with_ad(
 
     try:
         data = get_avail_with_ad(q)
+
+        # Обогащение комментариями из БД
+        comments_map = _load_comments_map()
+        for item in (data.get("items") or []):
+            item["comment"] = comments_map.get(item.get("extension", ""), "")
 
         # Счётчики для бейджей (после текстового поиска, до фильтра matched/unmatched)
         all_items = data.get("items") or []
@@ -107,6 +123,73 @@ def ip_phones_avail_with_ad(
             "</div>",
             status_code=200,
         )
+
+
+@router.post("/ip-phones/comment", response_class=HTMLResponse)
+def ip_phones_comment_save(
+    request: Request,
+    extension: str = Form(...),
+    comment: str = Form(""),
+):
+    """Сохранить или удалить комментарий к номеру IP-телефона."""
+    auth = require_initialized_or_redirect(request)
+    if not isinstance(auth, dict):
+        return auth
+
+    extension = extension.strip()
+    comment = comment.strip()
+    username = auth.get("sub", "")
+
+    with db_session() as db:
+        existing = db.execute(
+            select(IpPhoneComment).where(IpPhoneComment.extension == extension)
+        ).scalar_one_or_none()
+
+        if comment:
+            if existing:
+                existing.comment = comment
+                existing.updated_at = datetime.utcnow()
+                existing.updated_by = username
+            else:
+                db.add(IpPhoneComment(
+                    extension=extension,
+                    comment=comment,
+                    updated_at=datetime.utcnow(),
+                    updated_by=username,
+                ))
+            db.commit()
+        else:
+            # Пустой комментарий — удалить запись
+            if existing:
+                db.delete(existing)
+                db.commit()
+
+    return templates.TemplateResponse(
+        "partials/ip_phone_comment_cell.html",
+        {"request": request, "extension": extension, "comment": comment},
+    )
+
+
+@router.delete("/ip-phones/comment", response_class=HTMLResponse)
+def ip_phones_comment_delete(request: Request, extension: str = ""):
+    """Удалить комментарий к номеру IP-телефона."""
+    auth = require_initialized_or_redirect(request)
+    if not isinstance(auth, dict):
+        return auth
+
+    extension = extension.strip()
+    with db_session() as db:
+        existing = db.execute(
+            select(IpPhoneComment).where(IpPhoneComment.extension == extension)
+        ).scalar_one_or_none()
+        if existing:
+            db.delete(existing)
+            db.commit()
+
+    return templates.TemplateResponse(
+        "partials/ip_phone_comment_cell.html",
+        {"request": request, "extension": extension, "comment": ""},
+    )
 
 
 @router.get("/ip-phones/health")

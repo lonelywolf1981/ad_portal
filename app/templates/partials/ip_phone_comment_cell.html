@@ -1,0 +1,38 @@
+{# Содержимое ячейки комментария для номера IP-телефона.
+   Контекст: extension (str), comment (str).
+   При включении из ip_phones_results.html: row.extension, row.comment. #}
+{% set _ext = extension if extension is defined else row.extension %}
+{% set _cmt = comment if comment is defined else (row.comment if row is defined else "") %}
+<div class="d-flex align-items-center gap-1">
+  <form
+    class="d-flex align-items-center gap-1 flex-grow-1"
+    hx-post="/ip-phones/comment"
+    hx-target="#comment-cell-{{ _ext }}"
+    hx-swap="innerHTML"
+  >
+    <input type="hidden" name="extension" value="{{ _ext }}">
+    <input
+      type="text"
+      class="form-control form-control-sm"
+      name="comment"
+      value="{{ _cmt }}"
+      placeholder="Комментарий..."
+      autocomplete="off"
+      style="min-width: 120px;"
+    >
+    <button type="submit" class="btn btn-sm btn-outline-primary flex-shrink-0" title="Сохранить">
+      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16">
+        <path d="M12.736 3.97a.733.733 0 0 1 1.047 0c.286.289.29.756.01 1.05L7.88 12.01a.733.733 0 0 1-1.065.02L3.217 8.384a.757.757 0 0 1 0-1.06.733.733 0 0 1 1.047 0l3.052 3.093 5.4-6.425z"/>
+      </svg>
+    </button>
+  </form>
+  {% if _cmt %}
+    <button
+      class="btn btn-sm btn-outline-danger flex-shrink-0"
+      title="Удалить комментарий"
+      hx-delete="/ip-phones/comment?extension={{ _ext }}"
+      hx-target="#comment-cell-{{ _ext }}"
+      hx-swap="innerHTML"
+    >&times;</button>
+  {% endif %}
+</div>

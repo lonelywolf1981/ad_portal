@@ -120,6 +120,7 @@
               <th style="min-width: 120px;">{{ sort_link('Номер', 'extension') }}</th>
               <th style="min-width: 140px;">{{ sort_link('IP', 'ip') }}</th>
               <th style="min-width: 220px;">{{ sort_link('Пользователь AD', 'user') }}</th>
+              <th style="min-width: 200px;">Комментарий</th>
             </tr>
           </thead>
           <tbody>
@@ -135,6 +136,9 @@
                   {% else %}
                     <span class="text-danger fw-semibold">Не найден в AD</span>
                   {% endif %}
+                </td>
+                <td id="comment-cell-{{ row.extension }}">
+                  {% include "partials/ip_phone_comment_cell.html" with context %}
                 </td>
               </tr>
             {% endfor %}
