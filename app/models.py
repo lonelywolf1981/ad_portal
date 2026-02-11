@@ -99,6 +99,11 @@ class AppSettings(Base):
     last_ad_test_ok: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     last_ad_test_message: Mapped[str] = mapped_column(String(512), default="", nullable=False)
 
+    # Chart colors
+    net_scan_chart_line_color: Mapped[str] = mapped_column(String(20), default="#0d6efd", nullable=False)
+    net_scan_chart_fill_color: Mapped[str] = mapped_column(String(30), default="rgba(13,110,253,0.16)", nullable=False)
+    net_scan_chart_point_color: Mapped[str] = mapped_column(String(20), default="#0d6efd", nullable=False)
+
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
 
