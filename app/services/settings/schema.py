@@ -205,16 +205,17 @@ class ChartColorsSettings(BaseModel):
     @field_validator("fill_color")
     @classmethod
     def _validate_rgba_color(cls, v: str) -> str:
-        """Проверяет, что цвет задан в формате RGBA (rgba(R,G,B,A))."""
+        """Проверяет, что цвет задан в формате RGBA (rgba(R,G,B,A)) или HEX (#RRGGBB)."""
         s = (v or "").strip()
         if not s:
+            return s
+        # Проверяем формат HEX
+        if re.fullmatch(r"#([A-Fa-f0-9]{3}|[A-Fa-f0-9]{6})", s):
             return s
         # Проверяем формат RGBA
         rgba_pattern = r"rgba\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*,\s*(0|0?\.\d+|1(\.0)?)\s*\)"
         if not re.fullmatch(rgba_pattern, s, re.IGNORECASE):
-            # Также проверяем формат HEX
-            if not re.fullmatch(r"#([A-Fa-f0-9]{3}|[A-Fa-f0-9]{6})", s):
-                raise ValueError(f"Некорректный цвет в формате RGBA или HEX: {s}")
+            raise ValueError(f"Некорректный цвет в формате RGBA или HEX: {s}")
         return s
 
 
