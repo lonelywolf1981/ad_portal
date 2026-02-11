@@ -144,8 +144,8 @@ h1, h2, h3, h4, h5, h6 {
   transition: opacity 0.2s ease-in-out, visibility 0.2s ease-in-out;
 }
 
-button.htmx-request .htmx-indicator { 
-  display: flex !important; 
+.htmx-request .htmx-indicator {
+  display: flex !important;
   opacity: 1 !important;
   visibility: visible !important;
   z-index: 1000;
