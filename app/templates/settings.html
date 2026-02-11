@@ -428,6 +428,56 @@
       ? selected.map(t => `<span class="badge text-bg-secondary badge-tag">${t}</span>`).join("")
       : '<span class="text-secondary small">Не выбрано</span>';
   }
+  
+  // Обработка RGBA значений для цвета заливки
+  function handleFillColorChange() {
+    const fillInput = document.querySelector('input[name="net_scan_chart_fill_color"]');
+    if (!fillInput) return;
+    
+    // Проверяем, является ли значение RGBA
+    const value = fillInput.value;
+    if (value.startsWith('rgba')) {
+      // Извлекаем RGB из RGBA для отображения в color picker
+      const match = value.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+      if (match) {
+        const r = parseInt(match[1]).toString(16).padStart(2, '0');
+        const g = parseInt(match[2]).toString(16).padStart(2, '0');
+        const b = parseInt(match[3]).toString(16).padStart(2, '0');
+        const hexValue = `#${r}${g}${b}`;
+        
+        // Обновляем значение color picker
+        const colorPicker = document.createElement('input');
+        colorPicker.type = 'color';
+        colorPicker.value = hexValue;
+        colorPicker.className = 'form-control';
+        colorPicker.name = 'net_scan_chart_fill_color_picker';
+        colorPicker.style.display = 'inline-block';
+        colorPicker.style.width = '50px';
+        colorPicker.style.marginLeft = '10px';
+        
+        // Добавляем color picker рядом с текстовым полем
+        if (!document.querySelector('#fill-color-picker-container')) {
+          const container = document.createElement('div');
+          container.id = 'fill-color-picker-container';
+          container.style.marginTop = '5px';
+          container.appendChild(colorPicker);
+          
+          const label = document.createElement('label');
+          label.textContent = 'Цвет заливки (HEX): ';
+          label.appendChild(colorPicker);
+          
+          const parentDiv = fillInput.parentNode;
+          parentDiv.appendChild(container);
+          
+          // Обновляем значение основного поля при изменении color picker
+          colorPicker.addEventListener('input', function() {
+            fillInput.value = this.value;
+          });
+        }
+      }
+    }
+  }
+  
   document.addEventListener("change", function(e){
     if(e.target && e.target.id === "allowed_app_groups"){
       updateBadges("allowed_app_groups", "badges_app");
@@ -438,10 +488,25 @@
     if(e.target && e.target.id === "ad_tls_validate"){
       toggleAdCaPem();
     }
+    // Обновляем цвет заливки при изменении
+    if(e.target && e.target.name === "net_scan_chart_fill_color"){
+      handleFillColorChange();
+    }
   });
+  
+  // Инициализация при загрузке
+  document.addEventListener('DOMContentLoaded', function() {
+    updateBadges("allowed_app_groups", "badges_app");
+    updateBadges("allowed_settings_groups", "badges_settings");
+    toggleAdCaPem();
+    handleFillColorChange();
+  });
+  
+  // Вызов функций при загрузке
   updateBadges("allowed_app_groups", "badges_app");
   updateBadges("allowed_settings_groups", "badges_settings");
   toggleAdCaPem();
+  handleFillColorChange();
 })();
 </script>
 
