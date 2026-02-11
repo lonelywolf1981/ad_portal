@@ -139,3 +139,15 @@ class ScanStatsHistory(Base):
     users_total: Mapped[int | None] = mapped_column(Integer, nullable=True)
     users_enabled: Mapped[int | None] = mapped_column(Integer, nullable=True)
     users_online: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class IpPhoneComment(Base):
+    """Комментарий к номеру IP-телефона. Один комментарий на номер (extension)."""
+
+    __tablename__ = "ip_phone_comment"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    extension: Mapped[str] = mapped_column(String(10), unique=True, nullable=False)
+    comment: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_by: Mapped[str] = mapped_column(String(128), default="", nullable=False)

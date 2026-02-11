@@ -1,4 +1,8 @@
 {% set d = data or {} %}
+{% set _q = (d.get('query', '') or '') %}
+{% set _sort = sort or 'extension' %}
+{% set _dir = dir or 'asc' %}
+{% set _filter = filter or 'all' %}
 <div id="ip-phones-results" class="mt-3">
   <form
     class="row g-2 align-items-center mb-2"
@@ -6,6 +10,7 @@
     hx-target="#ip-phones-results"
     hx-swap="outerHTML"
     hx-trigger="submit, keyup changed delay:350ms from:input[name='q']"
+    hx-vals='{"sort": "{{ _sort }}", "dir": "{{ _dir }}", "filter": "{{ _filter }}"}'
   >
     <div class="col-md-8">
       <input
@@ -14,7 +19,7 @@
         name="q"
         placeholder="Поиск по части номера, ФИО или логина"
         autocomplete="off"
-        value="{{ d.get('query', '') }}"
+        value="{{ _q }}"
       >
     </div>
     <div class="col-md-2 d-grid">
@@ -36,14 +41,45 @@
       {% endif %}
     </div>
   {% else %}
-    <div class="d-flex flex-wrap gap-2 mb-2 small">
-      <span class="badge text-bg-secondary">Всего: {{ d.get("total", 0) }}</span>
-      <span class="badge text-bg-success">Сопоставлено: {{ d.get("matched", 0) }}</span>
-      <span class="badge text-bg-warning">Без сопоставления: {{ d.get("unmatched", 0) }}</span>
+    {# Фильтры-бейджи (счётчики после текстового поиска, до фильтра matched/unmatched) #}
+    {% set badge_total = d.get("badge_total", d.get("total", 0)) %}
+    {% set badge_matched = d.get("badge_matched", d.get("matched", 0)) %}
+    {% set badge_unmatched = d.get("badge_unmatched", d.get("unmatched", 0)) %}
+
+    {% macro filter_url(f) -%}
+      /ip-phones/avail-with-ad?q={{ _q|urlencode }}&sort={{ _sort }}&dir={{ _dir }}&filter={{ f }}
+    {%- endmacro %}
+
+    <div class="d-flex flex-wrap gap-2 mb-2">
+      <a
+        href="#"
+        class="badge rounded-pill fs-6 text-decoration-none {{ 'text-bg-secondary' if _filter == 'all' else 'bg-secondary-subtle text-secondary border' }}"
+        hx-get="{{ filter_url('all') }}"
+        hx-target="#ip-phones-results"
+        hx-swap="outerHTML"
+        onclick="return false;"
+      >Всего: {{ badge_total }}</a>
+      <a
+        href="#"
+        class="badge rounded-pill fs-6 text-decoration-none {{ 'text-bg-success' if _filter == 'matched' else 'bg-success-subtle text-success border' }}"
+        hx-get="{{ filter_url('matched') }}"
+        hx-target="#ip-phones-results"
+        hx-swap="outerHTML"
+        onclick="return false;"
+      >Сопоставлено: {{ badge_matched }}</a>
+      <a
+        href="#"
+        class="badge rounded-pill fs-6 text-decoration-none {{ 'text-bg-warning' if _filter == 'unmatched' else 'bg-warning-subtle text-warning-emphasis border' }}"
+        hx-get="{{ filter_url('unmatched') }}"
+        hx-target="#ip-phones-results"
+        hx-swap="outerHTML"
+        onclick="return false;"
+      >Без сопоставления: {{ badge_unmatched }}</a>
     </div>
-    {% if d.get("query") %}
+
+    {% if _q %}
       <div class="small text-secondary mb-2">
-        Фильтр: <code>{{ d.get("query") }}</code>. Показано {{ d.get("total", 0) }} из {{ d.get("total_all", d.get("total", 0)) }}.
+        Фильтр: <code>{{ _q }}</code>. Показано {{ d.get("total", 0) }} из {{ badge_total }}.
       </div>
     {% endif %}
 
@@ -53,20 +89,38 @@
 
     {% if not d.get("items") %}
       <div class="alert alert-light border mb-0">
-        {% if d.get("query") %}
+        {% if _q or _filter != 'all' %}
           По вашему запросу ничего не найдено.
         {% else %}
           Нет доступных 4-значных номеров.
         {% endif %}
       </div>
     {% else %}
+      {# Макрос сортировки столбцов #}
+      {% macro sort_link(label, field) -%}
+        {%- set next_dir = 'asc' if _sort != field else ('asc' if _dir == 'desc' else 'desc') -%}
+        {%- set arrow = '' -%}
+        {%- if _sort == field -%}
+          {%- set arrow = ' ▼' if _dir == 'desc' else ' ▲' -%}
+        {%- endif -%}
+        <a
+          href="#"
+          class="link-underline link-underline-opacity-0 text-secondary"
+          hx-get="/ip-phones/avail-with-ad?q={{ _q|urlencode }}&sort={{ field }}&dir={{ next_dir }}&filter={{ _filter }}"
+          hx-target="#ip-phones-results"
+          hx-swap="outerHTML"
+          onclick="return false;"
+        >{{ label }}{{ arrow }}</a>
+      {%- endmacro %}
+
       <div class="table-responsive border rounded bg-body-tertiary">
         <table class="table table-sm table-hover align-middle mb-0">
           <thead>
-            <tr>
-              <th>Номер</th>
-              <th>IP</th>
-              <th>Пользователь AD</th>
+            <tr class="small text-secondary">
+              <th style="min-width: 120px;">{{ sort_link('Номер', 'extension') }}</th>
+              <th style="min-width: 140px;">{{ sort_link('IP', 'ip') }}</th>
+              <th style="min-width: 220px;">{{ sort_link('Пользователь AD', 'user') }}</th>
+              <th style="min-width: 200px;">Комментарий</th>
             </tr>
           </thead>
           <tbody>
@@ -82,6 +136,9 @@
                   {% else %}
                     <span class="text-danger fw-semibold">Не найден в AD</span>
                   {% endif %}
+                </td>
+                <td id="comment-cell-{{ row.extension }}">
+                  {% include "partials/ip_phone_comment_cell.html" with context %}
                 </td>
               </tr>
             {% endfor %}
