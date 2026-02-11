@@ -32,28 +32,17 @@
    cd ad_portal
    ```
 
-2. Создайте виртуальное окружение:
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # Linux/Mac
-   # или
-   venv\Scripts\activate  # Windows
-   ```
-
-3. Установите зависимости:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-4. Скопируйте пример файла окружения:
+2. Скопируйте пример файла окружения:
    ```bash
    cp .env.example .env
    ```
 
-5. Запустите приложение:
+3. Запустите приложение с помощью Docker:
    ```bash
    docker-compose up --build
    ```
+
+Приложение будет доступно по адресу http://localhost:8484
 
 ## Стиль кодирования
 
