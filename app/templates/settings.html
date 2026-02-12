@@ -221,6 +221,18 @@
               <div class="form-text">
                 Укажите CIDR-сети и интервал. Результат будет добавляться в карточку пользователя при поиске.
               </div>
+              <div class="form-check mt-2">
+                <input
+                  class="form-check-input"
+                  type="checkbox"
+                  id="net_scan_enum_shares"
+                  name="net_scan_enum_shares"
+                  {% if st.net_scan_enum_shares is not defined or st.net_scan_enum_shares %}checked{% endif %}
+                >
+                <label class="form-check-label" for="net_scan_enum_shares">
+                  Обнаруживать общие папки (SMB-шары) на хостах
+                </label>
+              </div>
             </div>
 
             <div class="col-md-4">
@@ -299,6 +311,19 @@
                     <label class="form-label fw-semibold">Цвет точек</label>
                     <input class="form-control" name="net_scan_chart_point_color" type="color" value="{{ st.net_scan_chart_point_color or '#0d6efd' }}">
                     <div class="form-text">Цвет точек на графике</div>
+                    <div class="form-check mt-3">
+                      <input
+                        class="form-check-input"
+                        type="checkbox"
+                        id="net_scan_chart_show_points"
+                        name="net_scan_chart_show_points"
+                        value="1"
+                        {% if st.net_scan_chart_show_points is not defined or st.net_scan_chart_show_points %}checked{% endif %}
+                      >
+                      <label class="form-check-label" for="net_scan_chart_show_points">
+                        Показывать точки на графике
+                      </label>
+                    </div>
                   </div>
                 </div>
               </details>
@@ -330,6 +355,31 @@
                 <div><span class="fw-semibold">Результат:</span> {{ st.net_scan_last_summary or "—" }}</div>
               </div>
 </div>
+          </div>
+
+          <hr class="my-4">
+
+          <h2 class="h6 mb-3">Логирование</h2>
+          <div class="row g-3">
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">Уровень логирования</label>
+              <select class="form-select" name="log_level">
+                {% for lvl in ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] %}
+                <option value="{{ lvl }}" {% if (st.log_level or 'INFO') == lvl %}selected{% endif %}>{{ lvl }}</option>
+                {% endfor %}
+              </select>
+              <div class="form-text">DEBUG — максимум деталей, CRITICAL — только критические ошибки.</div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">Хранение логов (дней)</label>
+              <input class="form-control" name="log_retention_days" type="number" min="1" max="365" value="{{ st.log_retention_days or 30 }}">
+              <div class="form-text">Ротированные файлы старше указанного срока удаляются.</div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">Макс. размер файла (МБ)</label>
+              <input class="form-control" name="log_max_size_mb" type="number" min="5" max="500" value="{{ st.log_max_size_mb or 50 }}">
+              <div class="form-text">Логи ротируются ежедневно (midnight UTC).</div>
+            </div>
           </div>
 
         {% include "partials/settings_validate_tools.html" %}

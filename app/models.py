@@ -80,6 +80,8 @@ class AppSettings(Base):
     net_scan_probe_timeout_ms: Mapped[int] = mapped_column(Integer, default=350, nullable=False)
     net_scan_stats_retention_days: Mapped[int] = mapped_column(Integer, default=30, nullable=False)
 
+    net_scan_enum_shares: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
     net_scan_last_run_ts: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     net_scan_last_summary: Mapped[str] = mapped_column(String(512), default="", nullable=False)
     net_scan_lock_ts: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -103,6 +105,12 @@ class AppSettings(Base):
     net_scan_chart_line_color: Mapped[str] = mapped_column(String(20), default="#0d6efd", nullable=False)
     net_scan_chart_fill_color: Mapped[str] = mapped_column(String(30), default="rgba(13,110,253,0.16)", nullable=False)
     net_scan_chart_point_color: Mapped[str] = mapped_column(String(20), default="#0d6efd", nullable=False)
+    net_scan_chart_show_points: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    # Logging settings
+    log_level: Mapped[str] = mapped_column(String(16), default="INFO", nullable=False)
+    log_retention_days: Mapped[int] = mapped_column(Integer, default=30, nullable=False)
+    log_max_size_mb: Mapped[int] = mapped_column(Integer, default=50, nullable=False)
 
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
@@ -156,3 +164,16 @@ class IpPhoneComment(Base):
     comment: Mapped[str] = mapped_column(Text, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_by: Mapped[str] = mapped_column(String(128), default="", nullable=False)
+
+
+class HostShare(Base):
+    """SMB-шара, обнаруженная на хосте при фоновом сканировании."""
+
+    __tablename__ = "host_share"
+
+    host: Mapped[str] = mapped_column(String(255), primary_key=True)         # short hostname (lower)
+    share_name: Mapped[str] = mapped_column(String(255), primary_key=True)   # имя ресурса
+    ip: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    share_type: Mapped[int] = mapped_column(Integer, default=0, nullable=False)  # STYPE bitmask
+    remark: Mapped[str] = mapped_column(String(512), default="", nullable=False)
+    last_seen_ts: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)

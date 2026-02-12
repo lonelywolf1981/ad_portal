@@ -6,7 +6,7 @@ from typing import Literal, Any
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-CURRENT_SCHEMA_VERSION = 6
+CURRENT_SCHEMA_VERSION = 9
 
 MAX_NETSCAN_CIDRS = 64  # hard limit for net_scan.cidrs
 
@@ -131,6 +131,7 @@ class NetScanSettings(BaseModel):
     method_timeout_s: int = Field(default=20, ge=1, le=180)
     probe_timeout_ms: int = Field(default=350, ge=50, le=5000)
     stats_retention_days: int = Field(default=30, ge=7, le=365)
+    enum_shares: bool = Field(default=True)
 
     @field_validator("cidrs")
     @classmethod
@@ -189,6 +190,7 @@ class ChartColorsSettings(BaseModel):
     line_color: str = Field(default="#0d6efd", max_length=20)
     fill_color: str = Field(default="rgba(13,110,253,0.16)", max_length=30)
     point_color: str = Field(default="#0d6efd", max_length=20)
+    show_points: bool = Field(default=True)
 
     @field_validator("line_color", "point_color")
     @classmethod
@@ -218,6 +220,23 @@ class ChartColorsSettings(BaseModel):
             raise ValueError(f"Некорректный цвет в формате RGBA или HEX: {s}")
         return s
 
+
+
+LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
+
+
+class LogSettings(BaseModel):
+    level: str = Field(default="INFO", max_length=16)
+    retention_days: int = Field(default=30, ge=1, le=365)
+    max_size_mb: int = Field(default=50, ge=5, le=500)
+
+    @field_validator("level")
+    @classmethod
+    def _validate_level(cls, v: str) -> str:
+        s = (v or "INFO").strip().upper()
+        if s not in LOG_LEVELS:
+            raise ValueError(f"Допустимые уровни: {', '.join(LOG_LEVELS)}")
+        return s
 
 
 def upgrade_payload(payload: dict) -> dict:
@@ -298,6 +317,41 @@ def upgrade_payload(payload: dict) -> dict:
         chart_colors.setdefault("point_color", "#0d6efd")
         payload["schema_version"] = 6
 
+    # v6 -> v7 changes:
+    # - добавлено поле net_scan.enum_shares (обнаружение SMB-шар)
+    if v < 7:
+        if "net_scan" not in payload:
+            payload["net_scan"] = {}
+        if not isinstance(payload["net_scan"], dict):
+            payload["net_scan"] = {}
+        if "enum_shares" not in payload["net_scan"]:
+            payload["net_scan"]["enum_shares"] = True
+        payload["schema_version"] = 7
+
+    # v7 -> v8 changes:
+    # - добавлен раздел logging для настройки логирования
+    if v < 8:
+        if "logging" not in payload:
+            payload["logging"] = {}
+        if not isinstance(payload["logging"], dict):
+            payload["logging"] = {}
+        log_cfg = payload["logging"]
+        log_cfg.setdefault("level", "INFO")
+        log_cfg.setdefault("retention_days", 30)
+        log_cfg.setdefault("max_size_mb", 50)
+        payload["schema_version"] = 8
+
+    # v8 -> v9 changes:
+    # - добавлена настройка chart_colors.show_points
+    if v < 9:
+        if "chart_colors" not in payload:
+            payload["chart_colors"] = {}
+        if not isinstance(payload["chart_colors"], dict):
+            payload["chart_colors"] = {}
+        chart_colors = payload["chart_colors"]
+        chart_colors.setdefault("show_points", True)
+        payload["schema_version"] = 9
+
     # normalize
     try:
         payload["schema_version"] = int(payload.get("schema_version") or CURRENT_SCHEMA_VERSION)
@@ -325,6 +379,7 @@ class AppSettingsSchema(BaseModel):
     ip_phones: IPPhonesSettings = Field(default_factory=IPPhonesSettings)
     net_scan: NetScanSettings = Field(default_factory=NetScanSettings)
     chart_colors: ChartColorsSettings = Field(default_factory=ChartColorsSettings)
+    logging: LogSettings = Field(default_factory=LogSettings)
 
     @property
     def is_initialized(self) -> bool:

@@ -70,6 +70,21 @@ def _migrate_settings_row(st: AppSettings) -> bool:
     if not hasattr(st, "net_scan_chart_point_color"):
         st.net_scan_chart_point_color = "#0d6efd"
         changed = True
+    if not hasattr(st, "net_scan_chart_show_points"):
+        st.net_scan_chart_show_points = True
+        changed = True
+    if not hasattr(st, "net_scan_enum_shares"):
+        st.net_scan_enum_shares = True
+        changed = True
+    if not hasattr(st, "log_level"):
+        st.log_level = "INFO"
+        changed = True
+    if not hasattr(st, "log_retention_days"):
+        st.log_retention_days = 30
+        changed = True
+    if not hasattr(st, "log_max_size_mb"):
+        st.log_max_size_mb = 50
+        changed = True
 
     return changed
 
@@ -128,11 +143,18 @@ def get_settings(db: Session) -> AppSettingsSchema:
             "method_timeout_s": int(getattr(st, "net_scan_method_timeout_s", 20) or 20),
             "probe_timeout_ms": int(getattr(st, "net_scan_probe_timeout_ms", 350) or 350),
             "stats_retention_days": int(getattr(st, "net_scan_stats_retention_days", 30) or 30),
+            "enum_shares": bool(getattr(st, "net_scan_enum_shares", True)),
         },
         chart_colors={
             "line_color": getattr(st, "net_scan_chart_line_color", "#0d6efd"),
             "fill_color": getattr(st, "net_scan_chart_fill_color", "rgba(13,110,253,0.16)"),
             "point_color": getattr(st, "net_scan_chart_point_color", "#0d6efd"),
+            "show_points": bool(getattr(st, "net_scan_chart_show_points", True)),
+        },
+        logging={
+            "level": getattr(st, "log_level", "INFO") or "INFO",
+            "retention_days": int(getattr(st, "log_retention_days", 30) or 30),
+            "max_size_mb": int(getattr(st, "log_max_size_mb", 50) or 50),
         },
     )
 
@@ -203,11 +225,18 @@ def save_settings(db: Session, data: AppSettingsSchema, *, keep_secrets_if_blank
     setattr(st, "net_scan_method_timeout_s", int(data.net_scan.method_timeout_s or 20))
     setattr(st, "net_scan_probe_timeout_ms", int(data.net_scan.probe_timeout_ms or 350))
     setattr(st, "net_scan_stats_retention_days", int(data.net_scan.stats_retention_days or 30))
+    st.net_scan_enum_shares = bool(data.net_scan.enum_shares)
 
     # Chart colors
     setattr(st, "net_scan_chart_line_color", data.chart_colors.line_color or "#0d6efd")
     setattr(st, "net_scan_chart_fill_color", data.chart_colors.fill_color or "rgba(13,110,253,0.16)")
     setattr(st, "net_scan_chart_point_color", data.chart_colors.point_color or "#0d6efd")
+    setattr(st, "net_scan_chart_show_points", bool(getattr(data.chart_colors, "show_points", True)))
+
+    # Logging
+    st.log_level = (data.logging.level or "INFO").upper()
+    st.log_retention_days = int(data.logging.retention_days or 30)
+    st.log_max_size_mb = int(data.logging.max_size_mb or 50)
 
     st.updated_at = datetime.utcnow()
     db.commit()

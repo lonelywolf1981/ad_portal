@@ -16,18 +16,32 @@
     <div class="mt-3 pt-3 border-top">
       <div class="h6 mb-2">Статистика</div>
 
-      <div class="d-flex flex-wrap justify-content-between align-items-end gap-3">
-        <div class="flex-grow-1" style="min-width: 220px;">
-          <div class="text-secondary fs-4">Пользователей AD: <span class="fw-semibold text-info fs-4">{{ ad_users_total }}</span></div>
+      <div class="row row-cols-1 row-cols-lg-5 g-2 align-items-end">
+        <div class="col">
+          <div class="text-secondary fs-4 text-lg-center">Пользователей AD: <span class="fw-semibold text-info fs-4">{{ ad_users_total }}</span></div>
         </div>
 
-        <div class="flex-grow-1 text-md-center" style="min-width: 260px;">
-          <div class="text-secondary fs-4">Активных (enabled): <span class="fw-semibold text-info fs-4">{{ ad_users_enabled }}</span></div>
+        <div class="col">
+          <div class="text-secondary fs-4 text-lg-center">Активных: <span class="fw-semibold text-info fs-4">{{ ad_users_enabled }}</span></div>
         </div>
 
-        <div class="flex-grow-1 text-md-end" style="min-width: 300px;">
-          <div class="text-secondary fs-4">Онлайн (по последнему скану): <span class="fw-semibold text-info fs-4">{{ online_users }}</span></div>
+        {% if net_scan_ready %}
+        <div class="col">
+          <div class="text-secondary fs-4 text-lg-center">Онлайн: <span class="fw-semibold text-info fs-4">{{ matches_last_scan }}</span></div>
         </div>
+
+        <div class="col">
+          <div class="text-secondary fs-4 text-lg-center">Общих папок: <span class="fw-semibold text-info fs-4">{{ shares_visible }}</span></div>
+        </div>
+
+        <div class="col">
+          <div class="text-secondary fs-4 text-lg-center">Скрытых шар: <span class="fw-semibold text-info fs-4">{{ shares_hidden }}</span></div>
+        </div>
+        {% else %}
+        <div class="col">
+          <div class="text-secondary fs-4 text-lg-center">Онлайн: <span class="fw-semibold text-info fs-4">{{ online_users }}</span></div>
+        </div>
+        {% endif %}
       </div>
     </div>
 
@@ -270,6 +284,28 @@
       return padTop + ((maxV - v) * plotH / range);
     }
 
+    function traceSmoothLine(points){
+      if (!points.length) return;
+      if (points.length === 1) {
+        ctx.moveTo(points[0].x, points[0].y);
+        return;
+      }
+      if (points.length === 2) {
+        ctx.moveTo(points[0].x, points[0].y);
+        ctx.lineTo(points[1].x, points[1].y);
+        return;
+      }
+      ctx.moveTo(points[0].x, points[0].y);
+      for (let i = 1; i < points.length - 1; i++) {
+        const mx = (points[i].x + points[i + 1].x) / 2;
+        const my = (points[i].y + points[i + 1].y) / 2;
+        ctx.quadraticCurveTo(points[i].x, points[i].y, mx, my);
+      }
+      const last = points[points.length - 1];
+      const prev = points[points.length - 2];
+      ctx.quadraticCurveTo(prev.x, prev.y, last.x, last.y);
+    }
+
     // Y-axis labels.
     ctx.fillStyle = "#6c757d";
     ctx.font = "11px sans-serif";
@@ -281,42 +317,37 @@
     }
     ctx.textAlign = "start";
 
-    // Filled area under the line.
+    const chartPoints = pts.map(function(p){
+      const tsMs = Date.parse(p.ts || "");
+      return { x: xByTs(tsMs), y: y(Number(p[metric])) };
+    });
+
+    // Filled area under the line (smoothed).
     ctx.fillStyle = "{{ stats_chart_fill_color or 'rgba(13,110,253,0.16)' }}";
     ctx.beginPath();
-    pts.forEach(function(p, i){
-      const tsMs = Date.parse(p.ts || "");
-      const xv = xByTs(tsMs), yv = y(Number(p[metric]));
-      if (i === 0) ctx.moveTo(xv, yv);
-      else ctx.lineTo(xv, yv);
-    });
-    const firstTs = Date.parse(pts[0].ts || "");
-    const lastTs = Date.parse(pts[pts.length - 1].ts || "");
-    ctx.lineTo(xByTs(lastTs), padTop + plotH);
-    ctx.lineTo(xByTs(firstTs), padTop + plotH);
+    traceSmoothLine(chartPoints);
+    const firstPoint = chartPoints[0];
+    const lastPoint = chartPoints[chartPoints.length - 1];
+    ctx.lineTo(lastPoint.x, padTop + plotH);
+    ctx.lineTo(firstPoint.x, padTop + plotH);
     ctx.closePath();
     ctx.fill();
 
-    // Main line.
+    // Main line (smoothed).
     ctx.strokeStyle = "{{ stats_chart_line_color or '#0d6efd' }}";
     ctx.lineWidth = 2;
     ctx.beginPath();
-    pts.forEach(function(p, i){
-      const tsMs = Date.parse(p.ts || "");
-      const xv = xByTs(tsMs), yv = y(Number(p[metric]));
-      if (i === 0) ctx.moveTo(xv, yv);
-      else ctx.lineTo(xv, yv);
-    });
+    traceSmoothLine(chartPoints);
     ctx.stroke();
 
-    ctx.fillStyle = "{{ stats_chart_point_color or '#0d6efd' }}";
-    pts.forEach(function(p){
-      const tsMs = Date.parse(p.ts || "");
-      const xv = xByTs(tsMs), yv = y(Number(p[metric]));
-      ctx.beginPath();
-      ctx.arc(xv, yv, 2.5, 0, Math.PI * 2);
-      ctx.fill();
-    });
+    if ({{ 'true' if stats_chart_show_points else 'false' }}) {
+      ctx.fillStyle = "{{ stats_chart_point_color or '#0d6efd' }}";
+      chartPoints.forEach(function(pt){
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    }
 
     // X-axis time labels.
     ctx.fillStyle = "#6c757d";

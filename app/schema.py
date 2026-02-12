@@ -116,4 +116,18 @@ def ensure_schema() -> None:
             add("ALTER TABLE app_settings ADD COLUMN net_scan_chart_fill_color VARCHAR(30) NOT NULL DEFAULT 'rgba(13,110,253,0.16)'")
         if "net_scan_chart_point_color" not in cols:
             add("ALTER TABLE app_settings ADD COLUMN net_scan_chart_point_color VARCHAR(20) NOT NULL DEFAULT '#0d6efd'")
-        
+        if "net_scan_chart_show_points" not in cols:
+            add("ALTER TABLE app_settings ADD COLUMN net_scan_chart_show_points BOOLEAN NOT NULL DEFAULT 1")
+
+        # SMB shares enumeration during network scan
+        if "net_scan_enum_shares" not in cols:
+            add("ALTER TABLE app_settings ADD COLUMN net_scan_enum_shares BOOLEAN NOT NULL DEFAULT 1")
+
+        # Logging settings
+        if "log_level" not in cols:
+            add("ALTER TABLE app_settings ADD COLUMN log_level VARCHAR(16) NOT NULL DEFAULT 'INFO'")
+        if "log_retention_days" not in cols:
+            add("ALTER TABLE app_settings ADD COLUMN log_retention_days INTEGER NOT NULL DEFAULT 30")
+        if "log_max_size_mb" not in cols:
+            add("ALTER TABLE app_settings ADD COLUMN log_max_size_mb INTEGER NOT NULL DEFAULT 50")
+

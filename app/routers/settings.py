@@ -197,11 +197,18 @@ def _coerce_settings_payload(payload: dict) -> object:
             "method_timeout_s": int(payload.get("net_scan_method_timeout_s") or 20),
             "probe_timeout_ms": int(payload.get("net_scan_probe_timeout_ms") or 350),
             "stats_retention_days": int(payload.get("net_scan_stats_retention_days") or 30),
+            "enum_shares": _truthy_flag(payload.get("net_scan_enum_shares")),
         },
         "chart_colors": {
             "line_color": payload.get("net_scan_chart_line_color", "#0d6efd"),
             "fill_color": payload.get("net_scan_chart_fill_color", "rgba(13,110,253,0.16)"),
             "point_color": payload.get("net_scan_chart_point_color", "#0d6efd"),
+            "show_points": _truthy_flag(payload.get("net_scan_chart_show_points", 1)),
+        },
+        "logging": {
+            "level": (payload.get("log_level") or "INFO").strip().upper(),
+            "retention_days": int(payload.get("log_retention_days") or 30),
+            "max_size_mb": int(payload.get("log_max_size_mb") or 50),
         },
     }
 
@@ -367,6 +374,8 @@ def _effective_settings_from_form(db, form: dict) -> AppSettingsSchema:
     # Net scan
     if "net_scan_enabled" in form:
         patch["net_scan"]["enabled"] = bool(form.get("net_scan_enabled"))
+    if "net_scan_enum_shares" in form:
+        patch["net_scan"]["enum_shares"] = bool(form.get("net_scan_enum_shares"))
     if form.get("net_scan_cidrs") is not None:
         patch["net_scan"]["cidrs"] = _parse_cidrs(form.get("net_scan_cidrs") or "")
     if form.get("net_scan_dns_server") is not None:
@@ -390,6 +399,24 @@ def _effective_settings_from_form(db, form: dict) -> AppSettingsSchema:
             patch["chart_colors"]["fill_color"] = form.get("net_scan_chart_fill_color") or patch["chart_colors"]["fill_color"]
     if form.get("net_scan_chart_point_color") is not None:
         patch["chart_colors"]["point_color"] = form.get("net_scan_chart_point_color") or patch["chart_colors"]["point_color"]
+    if "net_scan_chart_show_points" in form:
+        patch["chart_colors"]["show_points"] = bool(form.get("net_scan_chart_show_points"))
+
+    # Logging
+    if "logging" not in patch:
+        patch["logging"] = cur.logging.model_dump()
+    if form.get("log_level") is not None:
+        patch["logging"]["level"] = (form.get("log_level") or "INFO").strip().upper()
+    if form.get("log_retention_days") is not None:
+        try:
+            patch["logging"]["retention_days"] = int(form.get("log_retention_days") or patch["logging"]["retention_days"])
+        except Exception:
+            log.warning("Некорректное значение log_retention_days", exc_info=True)
+    if form.get("log_max_size_mb") is not None:
+        try:
+            patch["logging"]["max_size_mb"] = int(form.get("log_max_size_mb") or patch["logging"]["max_size_mb"])
+        except Exception:
+            log.warning("Некорректное значение log_max_size_mb", exc_info=True)
 
     return AppSettingsSchema.model_validate(patch)
 
@@ -623,6 +650,7 @@ def settings_save(
     ip_phones_ami_password: str = Form(""),
     ip_phones_ami_timeout_s: int = Form(5),
     net_scan_enabled: str = Form(""),
+    net_scan_enum_shares: str = Form(""),
     net_scan_cidrs: str = Form(""),
     net_scan_dns_server: str = Form(""),
     net_scan_interval_min: int = Form(120),
@@ -634,8 +662,12 @@ def settings_save(
     net_scan_chart_fill_color: str = Form("#0d6efd"),
     net_scan_chart_fill_alpha: str = Form("0.16"),
     net_scan_chart_point_color: str = Form("#0d6efd"),
+    net_scan_chart_show_points: str = Form(""),
     allowed_app_group_dns: list[str] = Form([]),
     allowed_settings_group_dns: list[str] = Form([]),
+    log_level: str = Form("INFO"),
+    log_retention_days: int = Form(30),
+    log_max_size_mb: int = Form(50),
 ):
     auth = require_session_or_hx_redirect(request)
     if not isinstance(auth, dict):
@@ -678,6 +710,7 @@ def settings_save(
                     "ip_phones_ami_password": ip_phones_ami_password,
                     "ip_phones_ami_timeout_s": ip_phones_ami_timeout_s,
                     "net_scan_enabled": net_scan_enabled,
+                    "net_scan_enum_shares": net_scan_enum_shares,
                     "net_scan_cidrs": net_scan_cidrs,
                     "net_scan_dns_server": net_scan_dns_server,
                     "net_scan_interval_min": net_scan_interval_min,
@@ -688,14 +721,19 @@ def settings_save(
                     "net_scan_chart_line_color": net_scan_chart_line_color,
                     "net_scan_chart_fill_color": fill_color_rgba,
                     "net_scan_chart_point_color": net_scan_chart_point_color,
+                    "net_scan_chart_show_points": net_scan_chart_show_points,
                     "allowed_app_group_dns": allowed_app_group_dns,
                     "allowed_settings_group_dns": allowed_settings_group_dns,
+                    "log_level": log_level,
+                    "log_retention_days": log_retention_days,
+                    "log_max_size_mb": log_max_size_mb,
                 },
             )
         except ValidationError as e:
             lines = _humanize_pydantic_error_lines(e)
             details = "\n".join(lines)
             if request.headers.get("HX-Request") == "true":
+
                 # Для HTMX показываем ошибки списком (иначе переносы строк схлопываются в один текст).
                 return htmx_alert(
                     {
@@ -708,6 +746,17 @@ def settings_save(
                 )
             from urllib.parse import quote
             return RedirectResponse(url=f"/settings?err={quote(details)}#settings-save", status_code=303)
+
+    # Переконфигурируем логирование после успешного сохранения
+    try:
+        from ..log_config import reconfigure_logging
+        reconfigure_logging(
+            level=log_level,
+            retention_days=log_retention_days,
+            max_size_mb=log_max_size_mb,
+        )
+    except Exception:
+        log.warning("Не удалось переконфигурировать логирование", exc_info=True)
 
     if request.headers.get("HX-Request") == "true":
         # For HTMX: do a full redirect (HX-Redirect) to avoid swapping the whole page into the target div.

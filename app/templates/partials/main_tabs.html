@@ -13,6 +13,13 @@
           Поиск пользователей
         </button>
       </li>
+      {% if net_scan_ready %}
+      <li class="nav-item" role="presentation">
+        <button class="nav-link" id="tab-shares" data-bs-toggle="tab" data-bs-target="#pane-shares" type="button" role="tab" aria-controls="pane-shares" aria-selected="false">
+          Общие папки
+        </button>
+      </li>
+      {% endif %}
       <li class="nav-item" role="presentation">
         <button class="nav-link" id="tab-host" data-bs-toggle="tab" data-bs-target="#pane-host" type="button" role="tab" aria-controls="pane-host" aria-selected="false">
           Кто залогинен на хосте
@@ -76,6 +83,68 @@
           </div>
 
           <div id="presence-results" class="mt-3" hx-get="/presence/search" hx-trigger="load" hx-swap="innerHTML"></div>
+      </div>
+      {% endif %}
+
+      {% if net_scan_ready %}
+      <div class="tab-pane fade" id="pane-shares" role="tabpanel" aria-labelledby="tab-shares">
+          <div class="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-2 mb-2">
+            <h2 class="h6 mb-0">Общие папки (SMB-шары)</h2>
+            <a class="btn btn-outline-secondary btn-sm" id="shares-export" href="/shares/export.xlsx">Скачать XLSX</a>
+          </div>
+
+          <form
+            class="row g-2 align-items-center"
+            hx-get="/shares/search"
+            hx-target="#shares-results"
+            hx-swap="innerHTML"
+            hx-trigger="submit, keyup changed delay:350ms from:input[name='q']"
+            hx-include="[name='hidden']"
+          >
+            <div class="col-md-6">
+              <input
+                type="text"
+                class="form-control"
+                name="q"
+                placeholder="Поиск по хосту, IP, имени ресурса или описанию"
+                autocomplete="off"
+                oninput="(function(el){var v=(el.value||'').trim();var a=document.getElementById('shares-export');if(a){var h=document.getElementById('shares-hidden-cb');var hv=(h&&h.checked)?1:0;a.href='/shares/export.xlsx'+(v?('?q='+encodeURIComponent(v)+'&hidden='+hv):('?hidden='+hv));}})(this)"
+              >
+            </div>
+            <div class="col-md-2 d-grid">
+              <button class="btn btn-primary" type="submit">Найти</button>
+            </div>
+            <div class="col-md-3">
+              <div class="form-check">
+                <input
+                  class="form-check-input"
+                  type="checkbox"
+                  id="shares-hidden-cb"
+                  name="hidden"
+                  value="1"
+                  hx-get="/shares/search"
+                  hx-target="#shares-results"
+                  hx-swap="innerHTML"
+                  hx-include="closest form"
+                  hx-trigger="change"
+                >
+                <label class="form-check-label small" for="shares-hidden-cb">
+                  Показать скрытые (ADMIN$, C$, IPC$...)
+                </label>
+              </div>
+            </div>
+            <div class="col-md-1">
+              <div class="d-flex align-items-center gap-2">
+                <div class="spinner-border spinner-border-sm text-secondary htmx-indicator" role="status" aria-hidden="true"></div>
+              </div>
+            </div>
+          </form>
+
+          <div class="small text-secondary mt-2">
+            Данные накапливаются фоновым сканированием. Хранение — 31 день.
+          </div>
+
+          <div id="shares-results" class="mt-3" hx-get="/shares/search" hx-trigger="load" hx-swap="innerHTML"></div>
       </div>
       {% endif %}
 

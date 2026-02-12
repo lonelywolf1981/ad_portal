@@ -12,6 +12,7 @@ from .crypto import decrypt_str
 from .net_scan import scan_presence
 from .presence import upsert_presence_bulk
 from .mappings import cleanup_host_user_matches, upsert_host_user_matches
+from .shares import cleanup_shares, upsert_shares_bulk
 from .repo import db_session, get_or_create_settings
 from .models import AppSettings, ScanStatsHistory
 from .timezone_utils import format_ru_local
@@ -147,6 +148,7 @@ def run_network_scan() -> dict:
         )
         conc = clamp_int(getattr(st, "net_scan_concurrency", 64), default=64, min_v=1, max_v=256)
         probe_ms = clamp_int(getattr(st, "net_scan_probe_timeout_ms", 350), default=350, min_v=50, max_v=5000)
+        do_enum_shares = bool(getattr(st, "net_scan_enum_shares", True))
 
     # Run scan outside DB transaction
     try:
@@ -158,6 +160,7 @@ def run_network_scan() -> dict:
             per_method_timeout_s=per_method_timeout_s,
             concurrency=conc,
             probe_timeout_ms=probe_ms,
+            enum_shares=do_enum_shares,
         )
 
         # Build host-user matches in a backward-compatible way:
@@ -180,6 +183,11 @@ def run_network_scan() -> dict:
         with db_session() as db:
             updated_users = upsert_presence_bulk(db, res.presence)
             updated_matches = upsert_host_user_matches(db, matches)
+
+            # SMB-шары
+            shares_list = getattr(res, "shares", None) or []
+            updated_shares = upsert_shares_bulk(db, shares_list) if shares_list else 0
+            cleanup_shares(db, retention_days=31)
 
             # Retention: 1 month for host-user pairs
             deleted_matches = cleanup_host_user_matches(db, retention_days=31)
@@ -209,6 +217,7 @@ def run_network_scan() -> dict:
             except Exception:
                 log.warning("Не удалось получить AD-метрики для графика статистики", exc_info=True)
 
+            shares_part = f"Обнаружено ресурсов: {updated_shares}. " if updated_shares else ""
             summary = (
                 f"OK. Цели: {res.total_ips}. "
                 f"Проверено (после probe): {res.alive}. "
@@ -216,6 +225,7 @@ def run_network_scan() -> dict:
                 f"Ошибок: {res.errors}. "
                 f"Обновлено пользователей: {updated_users}. "
                 f"Обновлено сопоставлений: {updated_matches}. "
+                f"{shares_part}"
                 f"Удалено старых сопоставлений: {deleted_matches}. "
                 f"Длительность: {dur_s} сек."
             )

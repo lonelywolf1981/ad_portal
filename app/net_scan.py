@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Iterable
 
 from .host_query import find_logged_on_users
+from .host_query.api import find_host_shares
 from .presence import normalize_login
 from .utils.numbers import clamp_int
 from .utils.tcp_probe import tcp_probe_any
@@ -164,7 +165,7 @@ from typing import NamedTuple
 
 class ScanResult(NamedTuple):
     """Результат сканирования сети.
-    
+
     Attributes:
         total_ips: Общее количество IP-адресов для сканирования
         probed: Количество IP-адресов, до которых удалось достучаться
@@ -174,6 +175,7 @@ class ScanResult(NamedTuple):
         errors: Количество ошибок во время сканирования
         presence: Словарь соответствий пользователь -> {host, ip, method, ts}
         matches: Список соответствий {host, ip, login, method, ts}
+        shares: Список обнаруженных SMB-шар {host, ip, share_name, share_type, remark}
     """
     total_ips: int
     probed: int
@@ -183,11 +185,12 @@ class ScanResult(NamedTuple):
     errors: int
     presence: dict[str, dict]  # login_lower -> {host, ip, method, ts} (last known location per user)
     matches: list[dict]        # [{host, ip, login, method, ts}] (per host-user pair)
-    
+    shares: list[dict]         # [{host, ip, share_name, share_type, remark}]
+
     def __repr__(self):
         return (f"ScanResult(total_ips={self.total_ips}, probed={self.probed}, "
                 f"alive={self.alive}, queried={self.queried}, users_found={self.users_found}, "
-                f"errors={self.errors})")
+                f"errors={self.errors}, shares={len(self.shares)})")
 
 
 # Backward-compatible alias (some versions of tasks.py import this)
@@ -204,6 +207,7 @@ def scan_presence(
     concurrency: int = 64,
     probe_timeout_ms: int = 350,
     max_hosts: int = 20000,
+    enum_shares: bool = False,
 ) -> ScanResult:
     nets = parse_cidrs(cidrs_text)
     ips = iter_hosts(nets)
@@ -219,6 +223,7 @@ def scan_presence(
             errors=1,
             presence={},
             matches=[],
+            shares=[],
         )
 
     conc = clamp_int(concurrency, default=64, min_v=1, max_v=256)
@@ -234,12 +239,13 @@ def scan_presence(
     now = datetime.utcnow()
 
     matches: list[dict] = []
+    all_shares: list[dict] = []
 
-    def work_safe(ip: str) -> tuple[str, list[str], str, str, bool]:
-        """Returns (ip, users, method, hostname_short, is_error)."""
+    def work_safe(ip: str) -> tuple[str, list[str], str, str, bool, list[dict]]:
+        """Returns (ip, users, method, hostname_short, is_error, shares)."""
         try:
             if not quick_probe_any(ip, timeout_ms=probe_timeout_ms):
-                return ip, [], "", "", False
+                return ip, [], "", "", False, []
 
             users, method, _ms, _attempts = find_logged_on_users(
                 ip,
@@ -253,9 +259,35 @@ def scan_presence(
             if users:
                 # IMPORTANT: use per-subnet DNS PTR (network+1) based on explicit nets.
                 hostname = short_hostname(reverse_dns(ip, nets=nets, timeout_s=1.0))
-            return ip, users, method or "", hostname, False
+
+            # Перечисление шар (WinRM → WMI → SMB, если включено)
+            ip_shares: list[dict] = []
+            if enum_shares:
+                try:
+                    raw_shares = find_host_shares(
+                        ip,
+                        domain_suffix=domain_suffix,
+                        query_username=query_username,
+                        query_password=query_password,
+                        per_method_timeout_s=per_method_timeout_s,
+                    )
+                    if raw_shares:
+                        if not hostname:
+                            hostname = short_hostname(reverse_dns(ip, nets=nets, timeout_s=1.0))
+                        for s in raw_shares:
+                            ip_shares.append({
+                                "host": hostname,
+                                "ip": ip,
+                                "share_name": s.get("name", ""),
+                                "share_type": s.get("type", 0),
+                                "remark": s.get("remark", ""),
+                            })
+                except Exception:
+                    pass  # ошибки enum не ломают основной результат
+
+            return ip, users, method or "", hostname, False, ip_shares
         except Exception:
-            return ip, [], "", "", True
+            return ip, [], "", "", True, []
 
     # IMPORTANT:
     # Do NOT use executor.map here.
@@ -266,7 +298,7 @@ def scan_presence(
     with concurrent.futures.ThreadPoolExecutor(max_workers=conc) as ex:
         futs: list[concurrent.futures.Future] = [ex.submit(work_safe, ip) for ip in ips]
         for fut in concurrent.futures.as_completed(futs):
-            ip2, users, method, hostname, is_err = fut.result()
+            ip2, users, method, hostname, is_err, ip_shares = fut.result()
             probed += 1
             if is_err:
                 errors += 1
@@ -296,6 +328,9 @@ def scan_presence(
                         }
                     )
 
+            if ip_shares:
+                all_shares.extend(ip_shares)
+
     users_found = len(presence)
 
     return ScanResult(
@@ -307,4 +342,5 @@ def scan_presence(
         errors=errors,
         presence=presence,
         matches=matches,
+        shares=all_shares,
     )

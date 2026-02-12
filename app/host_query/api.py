@@ -4,7 +4,11 @@ import concurrent.futures
 import time
 
 from .credentials import split_credential
-from .methods import smb_query_users, winrm_query_users, wmi_query_user
+from .methods import (
+    smb_query_users, winrm_query_users, wmi_query_user,
+    winrm_enum_shares, wmi_enum_shares, smb_enum_shares,
+    winrm_close_share,
+)
 from .models import Attempt
 from .targets import normalize_targets
 from .utils import dedupe_users, run_with_timeout
@@ -121,3 +125,108 @@ def find_logged_on_users(
 
     total = int((time.perf_counter() - started) * 1000)
     return [], "", total, attempts
+
+
+def find_host_shares(
+    raw_target: str,
+    domain_suffix: str,
+    query_username: str,
+    query_password: str,
+    per_method_timeout_s: int = 20,
+) -> list[dict]:
+    """Перечисление SMB-шар на хосте.
+
+    Методы пробуются по очереди: WinRM → WMI → SMB (от самого эффективного
+    в доменной сети к наименее). Первый успешный результат возвращается.
+
+    Возвращает список словарей:
+      {"name": str, "type": int, "remark": str}
+    """
+    targets = normalize_targets(raw_target, domain_suffix)
+    if not targets:
+        return []
+
+    per_method_timeout_s = max(5, min(180, int(per_method_timeout_s or 20)))
+
+    winrm_user, smb_domain, smb_user = split_credential(query_username, domain_suffix)
+    if not (winrm_user and smb_user and query_password):
+        return []
+
+    def try_winrm() -> list[dict]:
+        last: Exception | None = None
+        for t in targets:
+            try:
+                return winrm_enum_shares(t, winrm_user, query_password, per_method_timeout_s)
+            except ImportError:
+                raise
+            except Exception as e:
+                last = e
+                continue
+        raise RuntimeError(str(last) if last else "WinRM ошибка")
+
+    def try_wmi() -> list[dict]:
+        last: Exception | None = None
+        for t in targets:
+            try:
+                return wmi_enum_shares(t, smb_domain, smb_user, query_password)
+            except ImportError:
+                raise
+            except Exception as e:
+                last = e
+                continue
+        raise RuntimeError(str(last) if last else "WMI ошибка")
+
+    def try_smb() -> list[dict]:
+        last: Exception | None = None
+        for t in targets:
+            try:
+                return smb_enum_shares(t, smb_domain, smb_user, query_password)
+            except ImportError:
+                raise
+            except Exception as e:
+                last = e
+                continue
+        raise RuntimeError(str(last) if last else "SMB ошибка")
+
+    methods = [
+        ("WinRM", try_winrm),
+        ("WMI", try_wmi),
+        ("SMB", try_smb),
+    ]
+
+    for _name, fn in methods:
+        try:
+            shares = run_with_timeout(fn, per_method_timeout_s)
+            if shares:
+                return shares
+        except Exception:
+            continue
+
+    return []
+
+
+def close_host_share(
+    raw_target: str,
+    domain_suffix: str,
+    query_username: str,
+    query_password: str,
+    share_name: str,
+    per_method_timeout_s: int = 20,
+) -> tuple[bool, str, str]:
+    """Закрыть SMB-шару на хосте. Сейчас поддержан WinRM-метод."""
+    targets = normalize_targets(raw_target, domain_suffix)
+    if not targets:
+        return False, "Пустой хост или IP.", ""
+
+    per_method_timeout_s = max(5, min(180, int(per_method_timeout_s or 20)))
+    winrm_user, _smb_domain, _smb_user = split_credential(query_username, domain_suffix)
+    if not (winrm_user and query_password):
+        return False, "Не заданы учётные данные host query.", ""
+
+    last_msg = "WinRM ошибка"
+    for t in targets:
+        ok, msg = winrm_close_share(t, winrm_user, query_password, share_name, per_method_timeout_s)
+        if ok:
+            return True, msg, "WinRM"
+        last_msg = msg or last_msg
+    return False, last_msg, "WinRM"
