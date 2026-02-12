@@ -17,7 +17,7 @@ import time
 from datetime import datetime, timedelta
 from logging.handlers import TimedRotatingFileHandler, RotatingFileHandler
 
-_LOG_DIR = os.path.join(os.getcwd(), "logs")
+_LOG_DIR = os.path.join(os.getcwd(), "data", "logs")
 _LOG_FORMAT = "%(asctime)s [%(levelname)-8s] %(name)s: %(message)s"
 _LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 
