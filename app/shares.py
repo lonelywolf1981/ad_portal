@@ -83,6 +83,50 @@ def upsert_shares_bulk(db: Session, items: list[dict[str, Any]]) -> int:
     return updated
 
 
+def replace_shares_snapshot(db: Session, items: list[dict[str, Any]], *, seen_ts: datetime | None = None) -> int:
+    """Полностью заменить локальный снимок обнаруженных шар текущим результатом сканирования."""
+    now = seen_ts or _utcnow_naive()
+    dedup: dict[tuple[str, str], dict[str, Any]] = {}
+
+    for m in (items or []):
+        host_raw = (m.get("host") or "").strip()
+        ip = (m.get("ip") or "").strip()
+        share_name = (m.get("share_name") or "").strip()
+        share_type = int(m.get("share_type", 0) or 0)
+        remark = (m.get("remark") or "").strip()
+        if share_name.endswith("$"):
+            share_type |= STYPE_SPECIAL
+
+        host = normalize_host(host_raw)
+        if not host:
+            host = ip
+        if not host or not share_name:
+            continue
+
+        dedup[(host, share_name)] = {
+            "host": host,
+            "share_name": share_name,
+            "ip": ip,
+            "share_type": share_type,
+            "remark": remark,
+        }
+
+    db.execute(delete(HostShare))
+    for item in dedup.values():
+        db.add(
+            HostShare(
+                host=item["host"],
+                share_name=item["share_name"],
+                ip=item["ip"],
+                share_type=item["share_type"],
+                remark=item["remark"],
+                last_seen_ts=now,
+            )
+        )
+    db.commit()
+    return len(dedup)
+
+
 def cleanup_shares(db: Session, retention_days: int = 31) -> int:
     """Удаление шар, не обнаруженных дольше retention_days."""
     days = max(1, int(retention_days or 31))

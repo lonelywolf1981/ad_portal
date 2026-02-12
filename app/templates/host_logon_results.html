@@ -1,37 +1,42 @@
 {% if error %}
   <div class="alert alert-danger py-2 mb-0">{{ error }}</div>
 {% else %}
-  {% if users %}
-    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
-      <div>
-        <span class="text-secondary small">Хост:</span>
-        <code>{{ target }}</code>
-      </div>
-      <div class="text-secondary small">
-        Метод: <strong>{{ method }}</strong>
-        <span class="mx-1">•</span>
-        Время: <strong>{{ elapsed_ms }} мс</strong>
-      </div>
-    </div>
-
+  <details open>
+    <summary class="btn btn-outline-secondary btn-sm">Информация о хосте</summary>
     <div class="mt-2">
-      <div class="small text-secondary mb-1">Залогинен(ы):</div>
-      <div class="d-flex flex-wrap gap-2">
-        {% for u in users %}
-          <span class="badge text-bg-primary">{{ u }}</span>
-        {% endfor %}
-      </div>
-    </div>
-  {% else %}
-    <div class="alert alert-warning py-2 mb-0">Поиск не удался.</div>
-    <div class="small text-secondary mt-2">
-      Хост: <code>{{ target }}</code>
-      {% if elapsed_ms is not none %}
-        <span class="mx-1">•</span>
-        Время: <strong>{{ elapsed_ms }} мс</strong>
+      {% if users %}
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+          <div>
+            <span class="text-secondary small">Хост:</span>
+            <code>{{ target }}</code>
+          </div>
+          <div class="text-secondary small">
+            Метод: <strong>{{ method }}</strong>
+            <span class="mx-1">•</span>
+            Время: <strong>{{ elapsed_ms }} мс</strong>
+          </div>
+        </div>
+
+        <div class="mt-2">
+          <div class="small text-secondary mb-1">Залогинен(ы):</div>
+          <div class="d-flex flex-wrap gap-2">
+            {% for u in users %}
+              <span class="badge text-bg-primary">{{ u }}</span>
+            {% endfor %}
+          </div>
+        </div>
+      {% else %}
+        <div class="alert alert-warning py-2 mb-0">Поиск не удался.</div>
+        <div class="small text-secondary mt-2">
+          Хост: <code>{{ target }}</code>
+          {% if elapsed_ms is not none %}
+            <span class="mx-1">•</span>
+            Время: <strong>{{ elapsed_ms }} мс</strong>
+          {% endif %}
+        </div>
       {% endif %}
     </div>
-  {% endif %}
+  </details>
 
   {% if attempts %}
     <div class="mt-3">
