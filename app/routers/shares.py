@@ -114,64 +114,77 @@ def _render_shares_results(
 
     reverse = (dir == "desc")
 
-    def _row_key(r):
-        if sort == "host":
-            return natural_key(short_hostname(getattr(r, "host", "")))
-        if sort == "ip":
-            return ip_key(getattr(r, "ip", ""))
-        if sort == "name":
-            return natural_key(getattr(r, "share_name", ""))
-        if sort == "type":
-            return (getattr(r, "share_type", 0) or 0,)
-        dt = getattr(r, "last_seen_ts", None)
-        return (dt is None, dt)
-
-    try:
-        rows = sorted(rows, key=_row_key, reverse=reverse)
-    except Exception:
-        log.warning("Не удалось отсортировать результаты общих папок", exc_info=True)
-
-    items = []
+    # Group results by (host, ip) so the UI can collapse per-host blocks.
+    groups_map: dict[tuple[str, str], dict] = {}
     for r in rows:
-        ip = (r.ip or "").strip()
-        name = (r.share_name or "").strip()
-        subnet = ip_subnet_key(ip)
-        items.append(
-            {
-                "host": (r.host or "").strip(),
+        host = (getattr(r, "host", "") or "").strip()
+        ip = (getattr(r, "ip", "") or "").strip()
+        key = (host, ip)
+
+        g = groups_map.get(key)
+        if g is None:
+            subnet = ip_subnet_key(ip)
+            g = {
+                "host": host,
                 "ip": ip,
                 "subnet": subnet,
                 "subnet_class": subnet_badge_class(subnet),
+                "last_seen_ts": getattr(r, "last_seen_ts", None),
+                "items": [],
+            }
+            groups_map[key] = g
+
+        # Track latest seen ts per host-group for "when" sort on groups.
+        ts = getattr(r, "last_seen_ts", None)
+        if ts and (g.get("last_seen_ts") is None or ts > g["last_seen_ts"]):
+            g["last_seen_ts"] = ts
+
+        name = (getattr(r, "share_name", "") or "").strip()
+        g["items"].append(
+            {
                 "share_name": name,
                 "share_name_display": _clean_corrupted_text(name),
-                "share_type": _share_type_label(name, r.share_type or 0),
-                "is_hidden": _is_hidden_share(name, r.share_type or 0),
-                "remark": _fix_remark(name, (r.remark or "").strip()),
-                "when": fmt_dt_ru(getattr(r, "last_seen_ts", None)),
+                "share_type": _share_type_label(name, getattr(r, "share_type", 0) or 0),
+                "share_type_raw": int(getattr(r, "share_type", 0) or 0),
+                "is_hidden": _is_hidden_share(name, getattr(r, "share_type", 0) or 0),
+                "remark": _fix_remark(name, (getattr(r, "remark", "") or "").strip()),
+                "when": fmt_dt_ru(ts),
+                "last_seen_ts": ts,
                 "can_close": not _is_protected_share_name(name),
             }
         )
 
-    grouped_items = []
-    i = 0
-    while i < len(items):
-        key = (items[i]["host"], items[i]["ip"])
-        j = i + 1
-        while j < len(items) and (items[j]["host"], items[j]["ip"]) == key:
-            j += 1
-        span = j - i
-        for k in range(i, j):
-            row = dict(items[k])
-            row["show_host"] = (k == i)
-            row["host_rowspan"] = span
-            grouped_items.append(row)
-        i = j
+    groups = list(groups_map.values())
+
+    # Sorting behavior:
+    # - host/ip: sort host blocks
+    # - when: sort host blocks by latest detected share timestamp
+    # - name/type: sort shares inside each host block
+    try:
+        if sort == "host":
+            groups = sorted(groups, key=lambda g: natural_key(short_hostname(g.get("host", ""))), reverse=reverse)
+        elif sort == "ip":
+            groups = sorted(groups, key=lambda g: ip_key(g.get("ip", "")), reverse=reverse)
+        elif sort == "when":
+            groups = sorted(groups, key=lambda g: (g.get("last_seen_ts") is None, g.get("last_seen_ts")), reverse=reverse)
+        elif sort == "name":
+            for g in groups:
+                g["items"] = sorted(g["items"], key=lambda it: natural_key(it.get("share_name", "")), reverse=reverse)
+            groups = sorted(groups, key=lambda g: natural_key(short_hostname(g.get("host", ""))))
+        elif sort == "type":
+            for g in groups:
+                g["items"] = sorted(g["items"], key=lambda it: (it.get("share_type_raw", 0),), reverse=reverse)
+            groups = sorted(groups, key=lambda g: natural_key(short_hostname(g.get("host", ""))))
+        else:
+            groups = sorted(groups, key=lambda g: natural_key(short_hostname(g.get("host", ""))))
+    except Exception:
+        log.warning("Не удалось отсортировать результаты общих папок", exc_info=True)
 
     return templates.TemplateResponse(
         "shares_results.html",
         {
             "request": request,
-            "items": grouped_items,
+            "groups": groups,
             "q": q,
             "sort": sort,
             "dir": dir,

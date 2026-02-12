@@ -102,6 +102,12 @@ def setup_logging(
     logging.getLogger("httpcore").setLevel(max(log_level, logging.WARNING))
     logging.getLogger("httpx").setLevel(max(log_level, logging.WARNING))
 
+    # Важные ошибки Uvicorn (tracebacks) направляем в root-handlers,
+    # чтобы они попадали и в data/logs/app.log.
+    uvicorn_error = logging.getLogger("uvicorn.error")
+    uvicorn_error.setLevel(log_level)
+    uvicorn_error.propagate = True
+
     logging.getLogger("app").info(
         "Логирование настроено: уровень=%s, хранение=%d дней, макс. размер=%d МБ",
         level_str, retention_days, max_size_mb,

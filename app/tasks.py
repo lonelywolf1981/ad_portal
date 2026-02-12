@@ -12,7 +12,7 @@ from .crypto import decrypt_str
 from .net_scan import scan_presence
 from .presence import upsert_presence_bulk
 from .mappings import cleanup_host_user_matches, upsert_host_user_matches
-from .shares import cleanup_shares, upsert_shares_bulk
+from .shares import replace_shares_snapshot
 from .repo import db_session, get_or_create_settings
 from .models import AppSettings, ScanStatsHistory
 from .timezone_utils import format_ru_local
@@ -184,10 +184,9 @@ def run_network_scan() -> dict:
             updated_users = upsert_presence_bulk(db, res.presence)
             updated_matches = upsert_host_user_matches(db, matches)
 
-            # SMB-шары
+            # SMB-шары: храним только последний снимок текущего сканирования.
             shares_list = getattr(res, "shares", None) or []
-            updated_shares = upsert_shares_bulk(db, shares_list) if shares_list else 0
-            cleanup_shares(db, retention_days=31)
+            updated_shares = replace_shares_snapshot(db, shares_list, seen_ts=started)
 
             # Retention: 1 month for host-user pairs
             deleted_matches = cleanup_host_user_matches(db, retention_days=31)
@@ -217,7 +216,7 @@ def run_network_scan() -> dict:
             except Exception:
                 log.warning("Не удалось получить AD-метрики для графика статистики", exc_info=True)
 
-            shares_part = f"Обнаружено ресурсов: {updated_shares}. " if updated_shares else ""
+            shares_part = f"Обнаружено ресурсов: {updated_shares}. "
             summary = (
                 f"OK. Цели: {res.total_ips}. "
                 f"Проверено (после probe): {res.alive}. "

@@ -13,7 +13,7 @@
   </div>
 {% endif %}
 
-{% if not items or items|length == 0 %}
+{% if not groups or groups|length == 0 %}
   <div class="alert alert-secondary py-2 mb-0">
     {% if q %}
       Ничего не найдено.
@@ -22,78 +22,114 @@
     {% endif %}
   </div>
 {% else %}
-  <div class="table-responsive">
-    <table class="table table-sm align-middle mb-0">
-      <thead>
-        <tr class="small text-secondary">
-          {% macro sort_link(label, field) -%}
-            {%- set next_dir = 'desc' if _sort != field else ('asc' if _dir == 'desc' else 'desc') -%}
-            {%- set arrow = '' -%}
-            {%- if _sort == field -%}
-              {%- set arrow = ' ▼' if _dir == 'desc' else ' ▲' -%}
-            {%- endif -%}
-            <a
-              href="#"
-              class="link-underline link-underline-opacity-0 text-secondary"
-              hx-get="/shares/search?q={{ _q|urlencode }}&sort={{ field }}&dir={{ next_dir }}&hidden={{ _hidden }}"
-              hx-target="#shares-results"
-              hx-swap="innerHTML"
-              onclick="return false;"
-            >{{ label }}{{ arrow }}</a>
-          {%- endmacro %}
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+    <div class="d-flex align-items-center gap-2 small text-secondary">
+      {% macro sort_link(label, field) -%}
+        {%- set next_dir = 'desc' if _sort != field else ('asc' if _dir == 'desc' else 'desc') -%}
+        {%- set arrow = '' -%}
+        {%- if _sort == field -%}
+          {%- set arrow = ' ▼' if _dir == 'desc' else ' ▲' -%}
+        {%- endif -%}
+        <a
+          href="#"
+          class="link-underline link-underline-opacity-0 text-secondary"
+          hx-get="/shares/search?q={{ _q|urlencode }}&sort={{ field }}&dir={{ next_dir }}&hidden={{ _hidden }}"
+          hx-target="#shares-results"
+          hx-swap="innerHTML"
+          onclick="return false;"
+        >{{ label }}{{ arrow }}</a>
+      {%- endmacro %}
+      <span>Сортировка:</span>
+      {{ sort_link('Хост', 'host') }}
+      <span>•</span>
+      {{ sort_link('IP', 'ip') }}
+      <span>•</span>
+      {{ sort_link('Ресурс', 'name') }}
+      <span>•</span>
+      {{ sort_link('Тип', 'type') }}
+      <span>•</span>
+      {{ sort_link('Когда', 'when') }}
+    </div>
 
-          <th style="min-width: 180px;">{{ sort_link('Имя хоста', 'host') }}</th>
-          <th style="min-width: 130px;">{{ sort_link('IP', 'ip') }}</th>
-          <th style="min-width: 160px;">{{ sort_link('Имя ресурса', 'name') }}</th>
-          <th style="min-width: 110px;">{{ sort_link('Тип', 'type') }}</th>
-          <th style="min-width: 180px;">Описание</th>
-          <th style="min-width: 170px;">{{ sort_link('Когда обнаружено', 'when') }}</th>
-          <th style="min-width: 170px;">Действие</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for r in items %}
-          <tr>
-            {% if r.show_host %}
-              <td rowspan="{{ r.host_rowspan }}" class="align-top">
-                <span class="fw-semibold">{{ r.host if r.host else "—" }}</span>
-              </td>
-              <td rowspan="{{ r.host_rowspan }}" class="align-top">
-                {% if r.ip %}
-                  <span class="badge {{ r.subnet_class }}">{{ r.ip }}</span>
-                {% else %}
-                  <span class="text-secondary">—</span>
-                {% endif %}
-              </td>
+    <div class="btn-group btn-group-sm" role="group" aria-label="Управление списком хостов">
+      <button type="button" class="btn btn-outline-secondary" onclick="window.adpSetSharesOpen(true); return false;">Развернуть все</button>
+      <button type="button" class="btn btn-outline-secondary" onclick="window.adpSetSharesOpen(false); return false;">Свернуть все</button>
+    </div>
+  </div>
+
+  <script>
+    // Used by the "Expand/Collapse all" buttons in the Shares tab.
+    window.adpSetSharesOpen = window.adpSetSharesOpen || function(open) {
+      try {
+        var root = document.getElementById("shares-results");
+        if (!root) return;
+        var nodes = root.querySelectorAll("details");
+        for (var i = 0; i < nodes.length; i++) {
+          nodes[i].open = !!open;
+        }
+      } catch (_e) {}
+    };
+  </script>
+
+  <div class="d-flex flex-column gap-2">
+    {% for g in groups %}
+      <details class="border rounded p-2" open>
+        <summary class="d-flex justify-content-between align-items-center flex-wrap gap-2" style="cursor:pointer;">
+          <span class="d-inline-flex align-items-center gap-2">
+            <span class="fw-semibold">{{ g.host if g.host else "—" }}</span>
+            {% if g.ip %}
+              <span class="badge {{ g.subnet_class }}">{{ g.ip }}</span>
+            {% else %}
+              <span class="text-secondary">—</span>
             {% endif %}
-            <td><code>{{ r.share_name_display if r.share_name_display else "—" }}</code></td>
-            <td class="small">{{ r.share_type }}</td>
-            <td class="small text-secondary">{{ r.remark if r.remark else "" }}</td>
-            <td class="text-secondary small">{{ r.when if r.when else "—" }}</td>
-            <td>
-              {% if r.can_close %}
-                <form
-                  hx-post="/shares/close"
-                  hx-target="#shares-results"
-                  hx-swap="innerHTML"
-                  onsubmit="return confirm('Закрыть доступ к ресурсу {{ (r.share_name_display if r.share_name_display else r.share_name) }} на хосте {{ r.host if r.host else r.ip }}?');"
-                >
-                  <input type="hidden" name="host" value="{{ r.host }}">
-                  <input type="hidden" name="ip" value="{{ r.ip }}">
-                  <input type="hidden" name="share_name" value="{{ r.share_name }}">
-                  <input type="hidden" name="q" value="{{ _q }}">
-                  <input type="hidden" name="sort" value="{{ _sort }}">
-                  <input type="hidden" name="dir" value="{{ _dir }}">
-                  <input type="hidden" name="hidden" value="{{ _hidden }}">
-                  <button type="submit" class="btn btn-outline-danger btn-sm">Закрыть доступ</button>
-                </form>
-              {% else %}
-                <span class="small text-secondary">Системный ресурс</span>
-              {% endif %}
-            </td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+          </span>
+          <span class="small text-secondary">Ресурсов: {{ g["items"]|length }}</span>
+        </summary>
+        <div class="table-responsive mt-2">
+          <table class="table table-sm align-middle mb-0">
+            <thead>
+              <tr class="small text-secondary">
+                <th style="min-width: 160px;">Имя ресурса</th>
+                <th style="min-width: 120px;">Тип</th>
+                <th style="min-width: 180px;">Описание</th>
+                <th style="min-width: 170px;">Когда обнаружено</th>
+                <th style="min-width: 170px;">Действие</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for r in g["items"] %}
+                <tr>
+                  <td><code>{{ r.share_name_display if r.share_name_display else "—" }}</code></td>
+                  <td class="small">{{ r.share_type }}</td>
+                  <td class="small text-secondary">{{ r.remark if r.remark else "" }}</td>
+                  <td class="text-secondary small">{{ r.when if r.when else "—" }}</td>
+                  <td>
+                    {% if r.can_close %}
+                      <form
+                        hx-post="/shares/close"
+                        hx-target="#shares-results"
+                        hx-swap="innerHTML"
+                        onsubmit="return confirm('Закрыть доступ к ресурсу {{ (r.share_name_display if r.share_name_display else r.share_name) }} на хосте {{ g.host if g.host else g.ip }}?');"
+                      >
+                        <input type="hidden" name="host" value="{{ g.host }}">
+                        <input type="hidden" name="ip" value="{{ g.ip }}">
+                        <input type="hidden" name="share_name" value="{{ r.share_name }}">
+                        <input type="hidden" name="q" value="{{ _q }}">
+                        <input type="hidden" name="sort" value="{{ _sort }}">
+                        <input type="hidden" name="dir" value="{{ _dir }}">
+                        <input type="hidden" name="hidden" value="{{ _hidden }}">
+                        <button type="submit" class="btn btn-outline-danger btn-sm">Закрыть доступ</button>
+                      </form>
+                    {% else %}
+                      <span class="small text-secondary">Системный ресурс</span>
+                    {% endif %}
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </details>
+    {% endfor %}
   </div>
 {% endif %}
