@@ -79,6 +79,17 @@
         if (!t.closest || !t.closest('#mainTabs')) return;
         clearEl('user-results');
         clearEl('host-logon-results');
+        // Keep shares results on tab switch; if empty, load once on first open.
+        if (t.id === 'tab-shares') {
+          var sharesEl = document.getElementById('shares-results');
+          if (sharesEl && !sharesEl.innerHTML.trim()) {
+            var h = document.getElementById('shares-hidden-cb');
+            var hv = (h && h.checked) ? '1' : '0';
+            if (window.htmx && typeof window.htmx.ajax === 'function') {
+              window.htmx.ajax('GET', '/shares/search?hidden=' + hv, { target: '#shares-results', swap: 'innerHTML' });
+            }
+          }
+        }
         // presence-results is intentionally NOT cleared: it has auto-load and acts as a dashboard
       });
 

@@ -13,7 +13,8 @@ from ..deps import require_initialized_or_redirect
 from ..repo import db_session, get_or_create_settings
 from ..services.ad import ad_cfg_from_settings
 from ..ad import ADClient
-from ..models import ScanStatsHistory
+from ..models import ScanStatsHistory, HostShare
+from ..shares import hidden_share_expr
 from ..timezone_utils import format_ru_local
 from ..webui import templates
 
@@ -72,6 +73,9 @@ def index(request: Request):
     ad_users_total: int | str = "—"
     ad_users_enabled: int | str = "—"
     online_users: int | str = "—"
+    matches_last_scan: int | str = "—"
+    shares_visible: int | str = "—"
+    shares_hidden: int | str = "—"
     stats_history_points: list[dict] = []
     stats_retention_days = 30
     stats_scans_total = 0
@@ -114,6 +118,30 @@ def index(request: Request):
             m = re.search(r"Обновлено пользователей:\s*(\d+)", net_scan_last_summary)
             if m:
                 online_users = int(m.group(1))
+
+            # Количество сопоставлений из последнего скана
+            m2 = re.search(r"Обновлено сопоставлений:\s*(\d+)", net_scan_last_summary)
+            if m2:
+                matches_last_scan = int(m2.group(1))
+
+            # Количество SMB-шар: общие и скрытые (по биту SPECIAL и/или суффиксу '$').
+            from sqlalchemy import func as sa_func
+            try:
+                shares_visible = int(
+                    db.scalar(
+                        select(sa_func.count()).select_from(HostShare)
+                        .where(~hidden_share_expr())
+                    ) or 0
+                )
+                shares_hidden = int(
+                    db.scalar(
+                        select(sa_func.count()).select_from(HostShare)
+                        .where(hidden_share_expr())
+                    ) or 0
+                )
+            except Exception:
+                shares_visible = "—"
+                shares_hidden = "—"
 
             hist_rows = db.scalars(
                 select(ScanStatsHistory)
@@ -173,6 +201,9 @@ def index(request: Request):
             "stats_chart_line_color": stats_chart_line_color,
             "stats_chart_fill_color": stats_chart_fill_color,
             "stats_chart_point_color": stats_chart_point_color,
+            "matches_last_scan": matches_last_scan,
+            "shares_visible": shares_visible,
+            "shares_hidden": shares_hidden,
         },
     )
 

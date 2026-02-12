@@ -16,18 +16,32 @@
     <div class="mt-3 pt-3 border-top">
       <div class="h6 mb-2">Статистика</div>
 
-      <div class="d-flex flex-wrap justify-content-between align-items-end gap-3">
-        <div class="flex-grow-1" style="min-width: 220px;">
-          <div class="text-secondary fs-4">Пользователей AD: <span class="fw-semibold text-info fs-4">{{ ad_users_total }}</span></div>
+      <div class="row row-cols-1 row-cols-lg-5 g-2 align-items-end">
+        <div class="col">
+          <div class="text-secondary fs-4 text-lg-center">Пользователей AD: <span class="fw-semibold text-info fs-4">{{ ad_users_total }}</span></div>
         </div>
 
-        <div class="flex-grow-1 text-md-center" style="min-width: 260px;">
-          <div class="text-secondary fs-4">Активных (enabled): <span class="fw-semibold text-info fs-4">{{ ad_users_enabled }}</span></div>
+        <div class="col">
+          <div class="text-secondary fs-4 text-lg-center">Активных: <span class="fw-semibold text-info fs-4">{{ ad_users_enabled }}</span></div>
         </div>
 
-        <div class="flex-grow-1 text-md-end" style="min-width: 300px;">
-          <div class="text-secondary fs-4">Онлайн (по последнему скану): <span class="fw-semibold text-info fs-4">{{ online_users }}</span></div>
+        {% if net_scan_ready %}
+        <div class="col">
+          <div class="text-secondary fs-4 text-lg-center">Онлайн: <span class="fw-semibold text-info fs-4">{{ matches_last_scan }}</span></div>
         </div>
+
+        <div class="col">
+          <div class="text-secondary fs-4 text-lg-center">Общих папок: <span class="fw-semibold text-info fs-4">{{ shares_visible }}</span></div>
+        </div>
+
+        <div class="col">
+          <div class="text-secondary fs-4 text-lg-center">Скрытых шар: <span class="fw-semibold text-info fs-4">{{ shares_hidden }}</span></div>
+        </div>
+        {% else %}
+        <div class="col">
+          <div class="text-secondary fs-4 text-lg-center">Онлайн: <span class="fw-semibold text-info fs-4">{{ online_users }}</span></div>
+        </div>
+        {% endif %}
       </div>
     </div>
 

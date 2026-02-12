@@ -1,0 +1,67 @@
+{% if not items or items|length == 0 %}
+  <div class="alert alert-secondary py-2 mb-0">
+    {% if q %}
+      Ничего не найдено.
+    {% else %}
+      Пока нет данных. Дождитесь фонового сканирования или запустите его вручную в «Настройках».
+    {% endif %}
+  </div>
+{% else %}
+  <div class="table-responsive">
+    <table class="table table-sm align-middle mb-0">
+      <thead>
+        <tr class="small text-secondary">
+          {% set _q = q or '' %}
+          {% set _sort = sort or 'host' %}
+          {% set _dir = dir or 'asc' %}
+          {% set _hidden = hidden or 0 %}
+
+          {% macro sort_link(label, field) -%}
+            {%- set next_dir = 'desc' if _sort != field else ('asc' if _dir == 'desc' else 'desc') -%}
+            {%- set arrow = '' -%}
+            {%- if _sort == field -%}
+              {%- set arrow = ' ▼' if _dir == 'desc' else ' ▲' -%}
+            {%- endif -%}
+            <a
+              href="#"
+              class="link-underline link-underline-opacity-0 text-secondary"
+              hx-get="/shares/search?q={{ _q|urlencode }}&sort={{ field }}&dir={{ next_dir }}&hidden={{ _hidden }}"
+              hx-target="#shares-results"
+              hx-swap="innerHTML"
+              onclick="return false;"
+            >{{ label }}{{ arrow }}</a>
+          {%- endmacro %}
+
+          <th style="min-width: 180px;">{{ sort_link('Имя хоста', 'host') }}</th>
+          <th style="min-width: 130px;">{{ sort_link('IP', 'ip') }}</th>
+          <th style="min-width: 160px;">{{ sort_link('Имя ресурса', 'name') }}</th>
+          <th style="min-width: 110px;">{{ sort_link('Тип', 'type') }}</th>
+          <th style="min-width: 180px;">Описание</th>
+          <th style="min-width: 170px;">{{ sort_link('Когда обнаружено', 'when') }}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in items %}
+          <tr>
+            {% if r.show_host %}
+              <td rowspan="{{ r.host_rowspan }}" class="align-top">
+                <span class="fw-semibold">{{ r.host if r.host else "—" }}</span>
+              </td>
+              <td rowspan="{{ r.host_rowspan }}" class="align-top">
+                {% if r.ip %}
+                  <span class="badge {{ r.subnet_class }}">{{ r.ip }}</span>
+                {% else %}
+                  <span class="text-secondary">—</span>
+                {% endif %}
+              </td>
+            {% endif %}
+            <td><code>{{ r.share_name if r.share_name else "—" }}</code></td>
+            <td class="small">{{ r.share_type }}</td>
+            <td class="small text-secondary">{{ r.remark if r.remark else "" }}</td>
+            <td class="text-secondary small">{{ r.when if r.when else "—" }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endif %}
