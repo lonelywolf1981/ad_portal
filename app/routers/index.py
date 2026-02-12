@@ -82,6 +82,7 @@ def index(request: Request):
     stats_chart_line_color = "#0d6efd"
     stats_chart_fill_color = "rgba(13,110,253,0.16)"
     stats_chart_point_color = "#0d6efd"
+    stats_chart_show_points = True
 
     try:
         with db_session() as db:
@@ -90,6 +91,7 @@ def index(request: Request):
             stats_chart_line_color = getattr(st, "net_scan_chart_line_color", "#0d6efd") or "#0d6efd"
             stats_chart_fill_color = getattr(st, "net_scan_chart_fill_color", "rgba(13,110,253,0.16)") or "rgba(13,110,253,0.16)"
             stats_chart_point_color = getattr(st, "net_scan_chart_point_color", "#0d6efd") or "#0d6efd"
+            stats_chart_show_points = bool(getattr(st, "net_scan_chart_show_points", True))
 
             net_scan_enabled = bool(getattr(st, "net_scan_enabled", False))
             cidrs_txt = (getattr(st, "net_scan_cidrs", "") or "").strip()
@@ -201,6 +203,7 @@ def index(request: Request):
             "stats_chart_line_color": stats_chart_line_color,
             "stats_chart_fill_color": stats_chart_fill_color,
             "stats_chart_point_color": stats_chart_point_color,
+            "stats_chart_show_points": stats_chart_show_points,
             "matches_last_scan": matches_last_scan,
             "shares_visible": shares_visible,
             "shares_hidden": shares_hidden,

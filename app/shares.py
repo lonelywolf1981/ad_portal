@@ -92,6 +92,22 @@ def cleanup_shares(db: Session, retention_days: int = 31) -> int:
     return int(res.rowcount or 0)
 
 
+def delete_share(db: Session, host: str, share_name: str) -> int:
+    """Удалить запись шары из локального кэша после успешного удаления на хосте."""
+    host_norm = normalize_host((host or "").strip())
+    name = (share_name or "").strip()
+    if not host_norm or not name:
+        return 0
+    res = db.execute(
+        delete(HostShare).where(
+            HostShare.host == host_norm,
+            HostShare.share_name == name,
+        )
+    )
+    db.commit()
+    return int(res.rowcount or 0)
+
+
 def search_shares(
     db: Session,
     q: str = "",

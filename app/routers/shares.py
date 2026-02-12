@@ -4,14 +4,17 @@ import io
 import logging
 import re
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from openpyxl import Workbook
 
-from ..deps import require_session_or_hx_redirect, require_initialized_or_redirect
+from ..crypto import decrypt_str
+from ..deps import require_initialized_or_redirect
+from ..host_query.api import close_host_share
 from ..presence import fmt_dt_ru
-from ..repo import db_session
-from ..shares import search_shares, STYPE_SPECIAL
+from ..repo import db_session, get_or_create_settings
+from ..shares import delete_share, search_shares, STYPE_SPECIAL
+from ..utils.numbers import clamp_int
 from ..utils.net import ip_key, ip_subnet_key, natural_key, short_hostname, subnet_badge_class
 from ..webui import templates
 
@@ -36,6 +39,18 @@ _KNOWN_REMARKS: dict[str, str] = {
 _CORRUPTED_RE = re.compile(r"\?{3,}")
 
 
+def _clean_corrupted_text(text: str) -> str:
+    s = (text or "").strip()
+    if not s or not _CORRUPTED_RE.search(s):
+        return s
+    s = re.sub(r"\?+", " ", s)
+    s = re.sub(r"\s+", " ", s).strip(" .,-")
+    # Если после очистки не осталось букв/цифр — это чистый мусор кодировки.
+    if not re.search(r"[A-Za-zА-Яа-я0-9]", s):
+        return ""
+    return s
+
+
 def _fix_remark(share_name: str, remark: str) -> str:
     """Исправление повреждённых описаний шар (проблемы кодировки).
 
@@ -52,9 +67,8 @@ def _fix_remark(share_name: str, remark: str) -> str:
     # Буквенные диски: C$, D$, E$ и т.д.
     if re.match(r"^[A-Z]\$$", name_upper):
         return "Стандартный общий ресурс"
-    # Остальные — убираем мусор из «?», оставляем ASCII-часть
-    cleaned = _CORRUPTED_RE.sub("…", remark).strip()
-    return cleaned if cleaned and cleaned != "…" else ""
+    # Остальные — максимально безопасная очистка от мусора кодировки.
+    return _clean_corrupted_text(remark)
 
 
 def _share_type_label(share_name: str, t: int) -> str:
@@ -76,6 +90,95 @@ def _parse_hidden_flag(raw: str | int | None) -> bool:
         return False
     s = str(raw).strip().lower()
     return s in {"1", "true", "on", "yes"}
+
+
+def _is_protected_share_name(name: str) -> bool:
+    n = (name or "").strip().upper()
+    if n in {"ADMIN$", "IPC$", "PRINT$"}:
+        return True
+    return bool(re.match(r"^[A-Z]\$$", n))
+
+
+def _render_shares_results(
+    request: Request,
+    *,
+    q: str,
+    sort: str,
+    dir: str,
+    show_hidden: bool,
+    action_result: dict | None = None,
+):
+    lim = 200 if not q else 500
+    with db_session() as db:
+        rows = search_shares(db, q=q, show_hidden=show_hidden, limit=lim)
+
+    reverse = (dir == "desc")
+
+    def _row_key(r):
+        if sort == "host":
+            return natural_key(short_hostname(getattr(r, "host", "")))
+        if sort == "ip":
+            return ip_key(getattr(r, "ip", ""))
+        if sort == "name":
+            return natural_key(getattr(r, "share_name", ""))
+        if sort == "type":
+            return (getattr(r, "share_type", 0) or 0,)
+        dt = getattr(r, "last_seen_ts", None)
+        return (dt is None, dt)
+
+    try:
+        rows = sorted(rows, key=_row_key, reverse=reverse)
+    except Exception:
+        log.warning("Не удалось отсортировать результаты общих папок", exc_info=True)
+
+    items = []
+    for r in rows:
+        ip = (r.ip or "").strip()
+        name = (r.share_name or "").strip()
+        subnet = ip_subnet_key(ip)
+        items.append(
+            {
+                "host": (r.host or "").strip(),
+                "ip": ip,
+                "subnet": subnet,
+                "subnet_class": subnet_badge_class(subnet),
+                "share_name": name,
+                "share_name_display": _clean_corrupted_text(name),
+                "share_type": _share_type_label(name, r.share_type or 0),
+                "is_hidden": _is_hidden_share(name, r.share_type or 0),
+                "remark": _fix_remark(name, (r.remark or "").strip()),
+                "when": fmt_dt_ru(getattr(r, "last_seen_ts", None)),
+                "can_close": not _is_protected_share_name(name),
+            }
+        )
+
+    grouped_items = []
+    i = 0
+    while i < len(items):
+        key = (items[i]["host"], items[i]["ip"])
+        j = i + 1
+        while j < len(items) and (items[j]["host"], items[j]["ip"]) == key:
+            j += 1
+        span = j - i
+        for k in range(i, j):
+            row = dict(items[k])
+            row["show_host"] = (k == i)
+            row["host_rowspan"] = span
+            grouped_items.append(row)
+        i = j
+
+    return templates.TemplateResponse(
+        "shares_results.html",
+        {
+            "request": request,
+            "items": grouped_items,
+            "q": q,
+            "sort": sort,
+            "dir": dir,
+            "hidden": 1 if show_hidden else 0,
+            "action_result": action_result,
+        },
+    )
 
 
 def _require_shares_enabled() -> bool:
@@ -128,73 +231,109 @@ def shares_search(
         dir = "asc"
 
     show_hidden = _parse_hidden_flag(hidden)
-    lim = 200 if not q else 500
+    return _render_shares_results(
+        request,
+        q=q,
+        sort=sort,
+        dir=dir,
+        show_hidden=show_hidden,
+    )
 
-    with db_session() as db:
-        rows = search_shares(db, q=q, show_hidden=show_hidden, limit=lim)
 
-    reverse = (dir == "desc")
+@router.post("/shares/close", response_class=HTMLResponse)
+def shares_close(
+    request: Request,
+    host: str = Form(""),
+    ip: str = Form(""),
+    share_name: str = Form(""),
+    q: str = Form(""),
+    sort: str = Form("when"),
+    dir: str = Form("desc"),
+    hidden: str = Form("0"),
+):
+    auth = require_initialized_or_redirect(request)
+    if not isinstance(auth, dict):
+        return auth
 
-    def _row_key(r):
-        if sort == "host":
-            return natural_key(short_hostname(getattr(r, "host", "")))
-        if sort == "ip":
-            return ip_key(getattr(r, "ip", ""))
-        if sort == "name":
-            return natural_key(getattr(r, "share_name", ""))
-        if sort == "type":
-            return (getattr(r, "share_type", 0) or 0,)
-        dt = getattr(r, "last_seen_ts", None)
-        return (dt is None, dt)
+    q = (q or "").strip()
+    sort = (sort or "host").strip().lower()
+    dir = (dir or "asc").strip().lower()
+    if sort not in {"host", "ip", "name", "type", "when"}:
+        sort = "host"
+    if dir not in {"asc", "desc"}:
+        dir = "asc"
+    show_hidden = _parse_hidden_flag(hidden)
 
-    try:
-        rows = sorted(rows, key=_row_key, reverse=reverse)
-    except Exception:
-        log.warning("Не удалось отсортировать результаты общих папок", exc_info=True)
-
-    items = []
-    for r in rows:
-        ip = (r.ip or "").strip()
-        subnet = ip_subnet_key(ip)
-        items.append(
-            {
-                "host": (r.host or "").strip(),
-                "ip": ip,
-                "subnet": subnet,
-                "subnet_class": subnet_badge_class(subnet),
-                "share_name": (r.share_name or "").strip(),
-                "share_type": _share_type_label(r.share_name or "", r.share_type or 0),
-                "is_hidden": _is_hidden_share(r.share_name or "", r.share_type or 0),
-                "remark": _fix_remark(r.share_name or "", (r.remark or "").strip()),
-                "when": fmt_dt_ru(getattr(r, "last_seen_ts", None)),
-            }
+    user_name = (auth.get("username") or "").strip() or "unknown"
+    if not bool(auth.get("settings", False)):
+        return _render_shares_results(
+            request,
+            q=q,
+            sort=sort,
+            dir=dir,
+            show_hidden=show_hidden,
+            action_result={"ok": False, "message": "Недостаточно прав для закрытия ресурса."},
         )
 
-    grouped_items = []
-    i = 0
-    while i < len(items):
-        key = (items[i]["host"], items[i]["ip"])
-        j = i + 1
-        while j < len(items) and (items[j]["host"], items[j]["ip"]) == key:
-            j += 1
-        span = j - i
-        for k in range(i, j):
-            row = dict(items[k])
-            row["show_host"] = (k == i)
-            row["host_rowspan"] = span
-            grouped_items.append(row)
-        i = j
+    host = (host or "").strip()
+    ip = (ip or "").strip()
+    share_name = (share_name or "").strip()
+    target = host or ip
 
-    return templates.TemplateResponse(
-        "shares_results.html",
-        {
-            "request": request,
-            "items": grouped_items,
-            "q": q,
-            "sort": sort,
-            "dir": dir,
-            "hidden": 1 if show_hidden else 0,
-        },
+    if not target or not share_name:
+        return _render_shares_results(
+            request,
+            q=q,
+            sort=sort,
+            dir=dir,
+            show_hidden=show_hidden,
+            action_result={"ok": False, "message": "Не указан хост/IP или имя ресурса."},
+        )
+
+    if _is_protected_share_name(share_name):
+        return _render_shares_results(
+            request,
+            q=q,
+            sort=sort,
+            dir=dir,
+            show_hidden=show_hidden,
+            action_result={"ok": False, "message": f"Системный ресурс {share_name} нельзя закрыть из интерфейса."},
+        )
+
+    with db_session() as db:
+        st = get_or_create_settings(db)
+        domain_suffix = (st.ad_domain or "").strip()
+        query_user = (st.host_query_username or "").strip()
+        query_pwd = decrypt_str(getattr(st, "host_query_password_enc", "") or "")
+        timeout_s = clamp_int(getattr(st, "host_query_timeout_s", 60), default=60, min_v=5, max_v=180)
+
+    ok, msg, method = close_host_share(
+        raw_target=target,
+        domain_suffix=domain_suffix,
+        query_username=query_user,
+        query_password=query_pwd,
+        share_name=share_name,
+        per_method_timeout_s=timeout_s,
+    )
+    if ok:
+        try:
+            with db_session() as db:
+                delete_share(db, host=host, share_name=share_name)
+        except Exception:
+            log.warning("Не удалось удалить шару из локального кэша после закрытия", exc_info=True)
+        log.info("Share closed by %s: target=%s share=%s method=%s", user_name, target, share_name, method)
+        res = {"ok": True, "message": f"Доступ к ресурсу {share_name} закрыт ({method})."}
+    else:
+        log.warning("Share close failed by %s: target=%s share=%s method=%s msg=%s", user_name, target, share_name, method, msg)
+        res = {"ok": False, "message": f"Не удалось закрыть ресурс {share_name}.", "details": msg}
+
+    return _render_shares_results(
+        request,
+        q=q,
+        sort=sort,
+        dir=dir,
+        show_hidden=show_hidden,
+        action_result=res,
     )
 
 

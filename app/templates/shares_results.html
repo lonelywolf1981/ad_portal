@@ -1,3 +1,18 @@
+{% set _q = q or '' %}
+{% set _sort = sort or 'host' %}
+{% set _dir = dir or 'asc' %}
+{% set _hidden = hidden or 0 %}
+
+{% if action_result %}
+  {% set _ok = action_result.ok if action_result.ok is defined else false %}
+  <div class="alert {{ 'alert-success' if _ok else 'alert-danger' }} py-2 mb-2">
+    {{ action_result.message if action_result.message else '' }}
+    {% if action_result.details %}
+      <div class="small mt-1">{{ action_result.details }}</div>
+    {% endif %}
+  </div>
+{% endif %}
+
 {% if not items or items|length == 0 %}
   <div class="alert alert-secondary py-2 mb-0">
     {% if q %}
@@ -11,11 +26,6 @@
     <table class="table table-sm align-middle mb-0">
       <thead>
         <tr class="small text-secondary">
-          {% set _q = q or '' %}
-          {% set _sort = sort or 'host' %}
-          {% set _dir = dir or 'asc' %}
-          {% set _hidden = hidden or 0 %}
-
           {% macro sort_link(label, field) -%}
             {%- set next_dir = 'desc' if _sort != field else ('asc' if _dir == 'desc' else 'desc') -%}
             {%- set arrow = '' -%}
@@ -38,6 +48,7 @@
           <th style="min-width: 110px;">{{ sort_link('Тип', 'type') }}</th>
           <th style="min-width: 180px;">Описание</th>
           <th style="min-width: 170px;">{{ sort_link('Когда обнаружено', 'when') }}</th>
+          <th style="min-width: 170px;">Действие</th>
         </tr>
       </thead>
       <tbody>
@@ -55,10 +66,31 @@
                 {% endif %}
               </td>
             {% endif %}
-            <td><code>{{ r.share_name if r.share_name else "—" }}</code></td>
+            <td><code>{{ r.share_name_display if r.share_name_display else "—" }}</code></td>
             <td class="small">{{ r.share_type }}</td>
             <td class="small text-secondary">{{ r.remark if r.remark else "" }}</td>
             <td class="text-secondary small">{{ r.when if r.when else "—" }}</td>
+            <td>
+              {% if r.can_close %}
+                <form
+                  hx-post="/shares/close"
+                  hx-target="#shares-results"
+                  hx-swap="innerHTML"
+                  onsubmit="return confirm('Закрыть доступ к ресурсу {{ (r.share_name_display if r.share_name_display else r.share_name) }} на хосте {{ r.host if r.host else r.ip }}?');"
+                >
+                  <input type="hidden" name="host" value="{{ r.host }}">
+                  <input type="hidden" name="ip" value="{{ r.ip }}">
+                  <input type="hidden" name="share_name" value="{{ r.share_name }}">
+                  <input type="hidden" name="q" value="{{ _q }}">
+                  <input type="hidden" name="sort" value="{{ _sort }}">
+                  <input type="hidden" name="dir" value="{{ _dir }}">
+                  <input type="hidden" name="hidden" value="{{ _hidden }}">
+                  <button type="submit" class="btn btn-outline-danger btn-sm">Закрыть доступ</button>
+                </form>
+              {% else %}
+                <span class="small text-secondary">Системный ресурс</span>
+              {% endif %}
+            </td>
           </tr>
         {% endfor %}
       </tbody>
