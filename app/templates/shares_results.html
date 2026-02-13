@@ -57,19 +57,107 @@
     </div>
   </div>
 
-  <script>
-    // Used by the "Expand/Collapse all" buttons in the Shares tab.
-    window.adpSetSharesOpen = window.adpSetSharesOpen || function(open) {
-      try {
-        var root = document.getElementById("shares-results");
-        if (!root) return;
-        var nodes = root.querySelectorAll("details");
-        for (var i = 0; i < nodes.length; i++) {
-          nodes[i].open = !!open;
-        }
-      } catch (_e) {}
-    };
-  </script>
+	  <script>
+	    // Used by the "Expand/Collapse all" buttons in the Shares tab.
+	    window.adpSetSharesOpen = window.adpSetSharesOpen || function(open) {
+	      try {
+	        var root = document.getElementById("shares-results");
+	        if (!root) return;
+	        var nodes = root.querySelectorAll("details");
+	        for (var i = 0; i < nodes.length; i++) {
+	          nodes[i].open = !!open;
+	        }
+	      } catch (_e) {}
+	    };
+
+	    // Browsers often block direct navigation to file:// from http(s).
+	    // So we do best-effort:
+	    // 1) copy UNC path to clipboard
+	    // 2) try to open via file:// (may be blocked by browser policy)
+	    window.adpOpenShare = window.adpOpenShare || async function(host, shareName) {
+	      try {
+	        host = (host || "").trim();
+	        shareName = (shareName || "").trim();
+	        if (!host || !shareName) return false;
+
+	        var unc = "\\\\" + host + "\\" + shareName;
+
+	        // Copy path so user can paste into Explorer even if open is blocked.
+	        try {
+	          if (navigator.clipboard && navigator.clipboard.writeText) {
+	            await navigator.clipboard.writeText(unc);
+	          } else {
+	            throw new Error("no-clipboard");
+	          }
+	        } catch (_e1) {
+	          try { window.prompt("Путь к ресурсу (скопируйте):", unc); } catch (_e2) {}
+	        }
+
+	        // Try to open. This may do nothing depending on browser security settings.
+	        try {
+	          var url = "file://///" + encodeURIComponent(host) + "/" + encodeURIComponent(shareName);
+	          window.open(url, "_blank");
+	        } catch (_e3) {}
+	        return false;
+	      } catch (_e4) {
+	        return false;
+	      }
+	    };
+	  </script>
+
+	  <style>
+	    /* Shares tab: make share links feel like interactive "chips" instead of default blue anchors. */
+	    .adp-share-link {
+	      display: inline-flex;
+	      align-items: center;
+	      gap: 0.35rem;
+	      padding: 0.14rem 0.45rem;
+	      border-radius: 999px;
+	      border: 1px solid rgba(233, 30, 99, 0.25);
+	      background: rgba(233, 30, 99, 0.06);
+	      color: #ff4fa1; /* bright pink accent */
+	      text-decoration: none;
+	      transition: background-color 140ms ease, border-color 140ms ease, transform 140ms ease;
+	    }
+	    .adp-share-link[data-share-kind="print"] {
+	      border-color: rgba(255, 152, 0, 0.28);
+	      background: rgba(255, 152, 0, 0.08);
+	      color: #ffb74d;
+	    }
+	    .adp-share-link[data-share-kind="ipc"] {
+	      border-color: rgba(0, 188, 212, 0.28);
+	      background: rgba(0, 188, 212, 0.08);
+	      color: #4dd0e1;
+	    }
+	    .adp-share-link[data-share-kind="device"] {
+	      border-color: rgba(0, 200, 83, 0.26);
+	      background: rgba(0, 200, 83, 0.08);
+	      color: #69f0ae;
+	    }
+	    .adp-share-link[data-share-kind="hidden"] {
+	      border-color: rgba(176, 190, 197, 0.35);
+	      background: rgba(176, 190, 197, 0.08);
+	      color: #cfd8dc;
+	    }
+	    .adp-share-link:hover,
+	    .adp-share-link:focus-visible {
+	      background: rgba(233, 30, 99, 0.12);
+	      border-color: rgba(233, 30, 99, 0.45);
+	      color: #ff68b2;
+	      transform: translateY(-1px);
+	    }
+	    .adp-share-link:active {
+	      transform: translateY(0);
+	    }
+	    .adp-share-link code {
+	      color: inherit;
+	    }
+	    .adp-share-link .adp-share-ico {
+	      opacity: 0.9;
+	      font-size: 0.95em;
+	      line-height: 1;
+	    }
+	  </style>
 
   <div class="d-flex flex-column gap-2">
     {% for g in groups %}
@@ -96,14 +184,28 @@
                 <th style="min-width: 170px;">Действие</th>
               </tr>
             </thead>
-            <tbody>
-              {% for r in g["items"] %}
-                <tr>
-                  <td><code>{{ r.share_name_display if r.share_name_display else "—" }}</code></td>
-                  <td class="small">{{ r.share_type }}</td>
-                  <td class="small text-secondary">{{ r.remark if r.remark else "" }}</td>
-                  <td class="text-secondary small">{{ r.when if r.when else "—" }}</td>
-                  <td>
+	            <tbody>
+	              {% for r in g["items"] %}
+	                <tr>
+	                  {% set _host = g.host if g.host else g.ip %}
+	                  {% set _share_display = r.share_name_display if r.share_name_display else "—" %}
+	                  <td>
+	                    {% if _host and r.share_name %}
+	                      <a
+	                        class="adp-share-link"
+	                        href="#"
+	                        data-share-kind="{{ r.share_kind if r.share_kind else 'disk' }}"
+	                        onclick="window.adpOpenShare('{{ _host|e }}','{{ r.share_name|e }}'); return false;"
+	                        title="Открыть в проводнике: \\\\{{ _host }}\\{{ r.share_name }} (путь будет скопирован)"
+	                      ><span class="adp-share-ico" aria-hidden="true">{{ r.share_icon if r.share_icon else '📁' }}</span><code>{{ _share_display }}</code></a>
+	                    {% else %}
+	                      <code>{{ _share_display }}</code>
+	                    {% endif %}
+	                  </td>
+	                  <td class="small">{{ r.share_type }}</td>
+	                  <td class="small text-secondary">{{ r.remark if r.remark else "" }}</td>
+	                  <td class="text-secondary small">{{ r.when if r.when else "—" }}</td>
+	                  <td>
                     {% if r.can_close %}
                       <form
                         hx-post="/shares/close"

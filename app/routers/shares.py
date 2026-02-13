@@ -82,6 +82,27 @@ def _share_type_label(share_name: str, t: int) -> str:
     return label
 
 
+def _share_kind_and_icon(share_name: str, share_type: int) -> tuple[str, str]:
+    """UI hint: kind + icon for share link.
+
+    base types:
+      0 Disk, 1 PrintQueue, 2 Device, 3 IPC
+    hidden/system:
+      STYPE_SPECIAL bit and/or '$' suffix
+    """
+    raw = int(share_type or 0)
+    base = raw & 0x0FFFFFFF
+    if _is_hidden_share(share_name, raw):
+        return ("hidden", "🔒")
+    if base == STYPE_PRINTQ:
+        return ("print", "🖨️")
+    if base == STYPE_IPC:
+        return ("ipc", "🔌")
+    if base == STYPE_DEVICE:
+        return ("device", "💽")
+    return ("disk", "📁")
+
+
 def _is_hidden_share(share_name: str, share_type: int) -> bool:
     return bool((share_type & STYPE_SPECIAL) != 0 or (share_name or "").strip().endswith("$"))
 
@@ -141,13 +162,17 @@ def _render_shares_results(
             g["last_seen_ts"] = ts
 
         name = (getattr(r, "share_name", "") or "").strip()
+        raw_type = int(getattr(r, "share_type", 0) or 0)
+        kind, icon = _share_kind_and_icon(name, raw_type)
         g["items"].append(
             {
                 "share_name": name,
                 "share_name_display": _clean_corrupted_text(name),
-                "share_type": _share_type_label(name, getattr(r, "share_type", 0) or 0),
-                "share_type_raw": int(getattr(r, "share_type", 0) or 0),
-                "is_hidden": _is_hidden_share(name, getattr(r, "share_type", 0) or 0),
+                "share_type": _share_type_label(name, raw_type),
+                "share_type_raw": raw_type,
+                "share_kind": kind,
+                "share_icon": icon,
+                "is_hidden": _is_hidden_share(name, raw_type),
                 "remark": _fix_remark(name, (getattr(r, "remark", "") or "").strip()),
                 "when": fmt_dt_ru(ts),
                 "last_seen_ts": ts,
