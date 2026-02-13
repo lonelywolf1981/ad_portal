@@ -13,7 +13,7 @@ from ..deps import require_initialized_or_redirect
 from ..host_query.api import close_host_share
 from ..presence import fmt_dt_ru
 from ..repo import db_session, get_or_create_settings
-from ..shares import delete_share, search_shares, STYPE_SPECIAL
+from ..shares import delete_share, fix_remark_encoding, search_shares, STYPE_SPECIAL
 from ..utils.numbers import clamp_int
 from ..utils.net import ip_key, ip_subnet_key, natural_key, short_hostname, subnet_badge_class
 from ..webui import templates
@@ -58,6 +58,7 @@ def _fix_remark(share_name: str, remark: str) -> str:
     Для стандартных Windows-шар подставляем известное описание.
     Для дисковых шар вида X$ — «Стандартный общий ресурс».
     """
+    remark = fix_remark_encoding(remark)
     if not remark or not _CORRUPTED_RE.search(remark):
         return remark
     name_upper = (share_name or "").strip().upper()
