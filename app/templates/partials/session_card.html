@@ -25,10 +25,10 @@
           <div class="text-secondary fs-4 text-lg-center">Активных: <span class="fw-semibold text-info fs-4">{{ ad_users_enabled }}</span></div>
         </div>
 
-        {% if net_scan_ready %}
-        <div class="col">
-          <div class="text-secondary fs-4 text-lg-center">Онлайн: <span class="fw-semibold text-info fs-4">{{ matches_last_scan }}</span></div>
-        </div>
+	        {% if net_scan_ready %}
+	        <div class="col">
+	          <div class="text-secondary fs-4 text-lg-center">Онлайн: <span class="fw-semibold text-info fs-4">{{ online_users }}</span></div>
+	        </div>
 
         <div class="col">
           <div class="text-secondary fs-4 text-lg-center">Общих папок: <span class="fw-semibold text-info fs-4">{{ shares_visible }}</span></div>
@@ -73,13 +73,17 @@
           </select>
         </div>
 
-        <div class="d-flex flex-wrap align-items-center gap-2 mb-2 d-none" id="stats-custom-range">
-          <label class="small text-secondary" for="stats-date-from">С</label>
-          <input id="stats-date-from" type="datetime-local" class="form-control form-control-sm" style="max-width:220px;">
-          <label class="small text-secondary" for="stats-date-to">По</label>
-          <input id="stats-date-to" type="datetime-local" class="form-control form-control-sm" style="max-width:220px;">
-          <button type="button" class="btn btn-sm btn-outline-primary" id="stats-custom-apply">Применить</button>
-        </div>
+	        <div class="d-flex flex-wrap align-items-center gap-2 mb-2 d-none" id="stats-custom-range">
+	          <label class="small text-secondary" for="stats-date-from">С</label>
+	          <input id="stats-date-from" type="datetime-local" class="form-control form-control-sm" style="max-width:220px;">
+	          <label class="small text-secondary" for="stats-date-to">По</label>
+	          <input id="stats-date-to" type="datetime-local" class="form-control form-control-sm" style="max-width:220px;">
+	          <div class="form-check form-check-inline mb-0">
+	            <input class="form-check-input" type="checkbox" id="stats-to-last-scan" checked>
+	            <label class="form-check-label small text-secondary" for="stats-to-last-scan">До последнего скана</label>
+	          </div>
+	          <button type="button" class="btn btn-sm btn-outline-primary" id="stats-custom-apply">Применить</button>
+	        </div>
 
         <canvas id="stats-chart-canvas" height="170" style="display:block; width:calc(100% - 20px); margin:0 10px;"></canvas>
         <div id="stats-chart-hint" class="small text-secondary mt-1"></div>
@@ -103,12 +107,14 @@
   const hint = document.getElementById("stats-chart-hint");
   const periodSelect = document.getElementById("stats-period-select");
   const customWrap = document.getElementById("stats-custom-range");
-  const dateFrom = document.getElementById("stats-date-from");
-  const dateTo = document.getElementById("stats-date-to");
-  const customApply = document.getElementById("stats-custom-apply");
-  const collapseBtn = document.getElementById("stats-chart-collapse-btn");
-  const chartWrap = document.getElementById("stats-chart-wrap");
-  if (!canvas || !hint || !periodSelect || !customWrap || !dateFrom || !dateTo || !customApply || !collapseBtn || !chartWrap) return;
+	  const dateFrom = document.getElementById("stats-date-from");
+	  const dateTo = document.getElementById("stats-date-to");
+	  const toLastScan = document.getElementById("stats-to-last-scan");
+	  const customApply = document.getElementById("stats-custom-apply");
+	  const collapseBtn = document.getElementById("stats-chart-collapse-btn");
+	  const chartWrap = document.getElementById("stats-chart-wrap");
+	  if (!canvas || !hint || !periodSelect || !customWrap || !dateFrom || !dateTo || !customApply || !collapseBtn || !chartWrap) return;
+	  if (!toLastScan) return;
 
   const metricLabels = {
     total: "Всего пользователей",
@@ -140,40 +146,65 @@
   let collapsed = false;
   const lsMetricKey = "ad_portal_stats_metric";
   const lsPeriodKey = "ad_portal_stats_period";
-  const lsFromKey = "ad_portal_stats_from";
-  const lsToKey = "ad_portal_stats_to";
-  const lsCollapsedKey = "ad_portal_stats_collapsed";
+	  const lsFromKey = "ad_portal_stats_from";
+	  const lsToKey = "ad_portal_stats_to";
+	  const lsToLastScanKey = "ad_portal_stats_to_last_scan";
+	  const lsCollapsedKey = "ad_portal_stats_collapsed";
 
   function parseLocalDateInput(s){
     const ms = Date.parse(s || "");
     return Number.isFinite(ms) ? ms : null;
   }
 
-  function toLocalInputValue(ms){
-    if (!Number.isFinite(ms)) return "";
-    const d = new Date(ms);
-    const pad = function(n){ return String(n).padStart(2, "0"); };
-    return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) + "T" + pad(d.getHours()) + ":" + pad(d.getMinutes());
-  }
+	  function toLocalInputValue(ms){
+	    if (!Number.isFinite(ms)) return "";
+	    const d = new Date(ms);
+	    const pad = function(n){ return String(n).padStart(2, "0"); };
+	    return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) + "T" + pad(d.getHours()) + ":" + pad(d.getMinutes());
+	  }
 
-  function applyCollapseState(){
-    chartWrap.classList.toggle("d-none", collapsed);
-    collapseBtn.textContent = collapsed ? "Развернуть" : "Свернуть";
-  }
+	  function getLastScanMs(){
+	    if (!Array.isArray(points) || !points.length) return Date.now();
+	    let maxMs = null;
+	    points.forEach(function(p){
+	      const ms = Date.parse((p && p.ts) ? p.ts : "");
+	      if (Number.isFinite(ms) && (maxMs === null || ms > maxMs)) maxMs = ms;
+	    });
+	    return (maxMs === null) ? Date.now() : maxMs;
+	  }
 
-  function getPeriodWindowMs() {
-    let fromMs = null;
-    let toMs = Date.now();
+	  function applyToLastScanState(){
+	    const on = !!toLastScan.checked;
+	    dateTo.disabled = on;
+	    if (on) {
+	      dateTo.value = toLocalInputValue(getLastScanMs());
+	    }
+	  }
 
-    if (period === "custom") {
-      fromMs = parseLocalDateInput(dateFrom.value);
-      const customTo = parseLocalDateInput(dateTo.value);
-      if (customTo !== null) toMs = customTo;
-      if (fromMs === null) return null;
-      if (toMs < fromMs) return null;
-    } else {
-      const mins = presetMinutes[period] || 15;
-      fromMs = Date.now() - (mins * 60 * 1000);
+	  function applyCollapseState(){
+	    chartWrap.classList.toggle("d-none", collapsed);
+	    collapseBtn.textContent = collapsed ? "Развернуть" : "Свернуть";
+	  }
+
+	  function getPeriodWindowMs() {
+	    let fromMs = null;
+	    let toMs = Date.now();
+
+	    if (period === "custom") {
+	      fromMs = parseLocalDateInput(dateFrom.value);
+	      if (toLastScan.checked) {
+	        toMs = getLastScanMs();
+	        // Keep the input in sync so user sees the actual right boundary.
+	        dateTo.value = toLocalInputValue(toMs);
+	      } else {
+	        const customTo = parseLocalDateInput(dateTo.value);
+	        if (customTo !== null) toMs = customTo;
+	      }
+	      if (fromMs === null) return null;
+	      if (toMs < fromMs) return null;
+	    } else {
+	      const mins = presetMinutes[period] || 15;
+	      fromMs = Date.now() - (mins * 60 * 1000);
     }
     return { fromMs: fromMs, toMs: toMs };
   }
@@ -372,36 +403,40 @@
     });
   }
 
-  function setPeriodUI(){
-    periodSelect.value = period;
-    customWrap.classList.toggle("d-none", period !== "custom");
-  }
+	  function setPeriodUI(){
+	    periodSelect.value = period;
+	    customWrap.classList.toggle("d-none", period !== "custom");
+	    if (period === "custom") applyToLastScanState();
+	  }
 
-  function saveState(){
-    try {
-      localStorage.setItem(lsMetricKey, metric);
-      localStorage.setItem(lsPeriodKey, period);
-      if (period === "custom") {
-        localStorage.setItem(lsFromKey, dateFrom.value || "");
-        localStorage.setItem(lsToKey, dateTo.value || "");
-      }
-      localStorage.setItem(lsCollapsedKey, collapsed ? "1" : "0");
-    } catch (_e) {}
-  }
+	  function saveState(){
+	    try {
+	      localStorage.setItem(lsMetricKey, metric);
+	      localStorage.setItem(lsPeriodKey, period);
+	      if (period === "custom") {
+	        localStorage.setItem(lsFromKey, dateFrom.value || "");
+	        localStorage.setItem(lsToKey, dateTo.value || "");
+	        localStorage.setItem(lsToLastScanKey, toLastScan.checked ? "1" : "0");
+	      }
+	      localStorage.setItem(lsCollapsedKey, collapsed ? "1" : "0");
+	    } catch (_e) {}
+	  }
 
-  function loadState(){
-    try {
-      const m = localStorage.getItem(lsMetricKey);
-      const p = localStorage.getItem(lsPeriodKey);
-      const f = localStorage.getItem(lsFromKey);
-      const t = localStorage.getItem(lsToKey);
-      const c = localStorage.getItem(lsCollapsedKey);
-      if (m && metricLabels[m]) metric = m;
-      if (p) period = p;
-      if (f) dateFrom.value = f;
-      if (t) dateTo.value = t;
-      collapsed = (c === "1");
-    } catch (_e) {}
+	  function loadState(){
+	    try {
+	      const m = localStorage.getItem(lsMetricKey);
+	      const p = localStorage.getItem(lsPeriodKey);
+	      const f = localStorage.getItem(lsFromKey);
+	      const t = localStorage.getItem(lsToKey);
+	      const tls = localStorage.getItem(lsToLastScanKey);
+	      const c = localStorage.getItem(lsCollapsedKey);
+	      if (m && metricLabels[m]) metric = m;
+	      if (p) period = p;
+	      if (f) dateFrom.value = f;
+	      if (t) dateTo.value = t;
+	      if (tls !== null) toLastScan.checked = (tls === "1");
+	      collapsed = (c === "1");
+	    } catch (_e) {}
 
     if (period !== "custom" && (!presetMinutes[period] || presetMinutes[period] > maxMinutes)) {
       period = "1h";
@@ -409,12 +444,12 @@
       if (presetMinutes[period] > maxMinutes) period = "custom";
     }
 
-    if (period === "custom") {
-      const now = Date.now();
-      if (!dateTo.value) dateTo.value = toLocalInputValue(now);
-      if (!dateFrom.value) dateFrom.value = toLocalInputValue(now - (60 * 60 * 1000));
-    }
-  }
+	    if (period === "custom") {
+	      const now = Date.now();
+	      if (!dateTo.value) dateTo.value = toLocalInputValue(now);
+	      if (!dateFrom.value) dateFrom.value = toLocalInputValue(now - (60 * 60 * 1000));
+	    }
+	  }
 
   document.querySelectorAll("[data-chart-metric]").forEach(function(btn){
     btn.addEventListener("click", function(){
@@ -432,25 +467,32 @@
     draw();
   });
 
-  customApply.addEventListener("click", function(){
-    period = "custom";
-    setPeriodUI();
-    saveState();
-    draw();
-  });
+	  customApply.addEventListener("click", function(){
+	    period = "custom";
+	    setPeriodUI();
+	    saveState();
+	    draw();
+	  });
 
-  collapseBtn.addEventListener("click", function(){
-    collapsed = !collapsed;
-    applyCollapseState();
-    saveState();
-  });
+	  toLastScan.addEventListener("change", function(){
+	    applyToLastScanState();
+	    saveState();
+	    draw();
+	  });
+
+	  collapseBtn.addEventListener("click", function(){
+	    collapsed = !collapsed;
+	    applyCollapseState();
+	    saveState();
+	  });
 
   window.addEventListener("resize", draw);
 
-  loadState();
-  setActiveMetricButtons();
-  setPeriodUI();
-  applyCollapseState();
-  draw();
+	  loadState();
+	  setActiveMetricButtons();
+	  setPeriodUI();
+	  applyCollapseState();
+	  applyToLastScanState();
+	  draw();
 })();
-</script>
+	</script>

@@ -13,6 +13,40 @@ from .mappings import normalize_host
 STYPE_SPECIAL = 0x80000000
 
 
+# Some Windows tools return localized strings in OEM codepage (cp866 on RU systems).
+# If that output is mis-decoded/stored as cp1251, it becomes mojibake like:
+#   "ЋЎйЁ© бҐаўҐа ўе®¤"  ->  "Общий сервер входа"
+_MOJIBAKE_MARKERS = set("ЉЊЋЌЍЏЎҐЈљћўќ®¤")
+
+
+def fix_remark_encoding(remark: str) -> str:
+    """Best-effort fix for common RU cp866<->cp1251 mojibake in share remarks.
+
+    Returns the original string if it doesn't look like mojibake.
+    """
+    s = (remark or "").strip()
+    if not s:
+        return ""
+
+    # Heuristic: characters that are extremely unlikely in normal Russian UI,
+    # but common in cp866-bytes mis-decoded as cp1251.
+    if not any(ch in s for ch in _MOJIBAKE_MARKERS):
+        return s
+
+    try:
+        fixed = s.encode("cp1251").decode("cp866")
+    except Exception:
+        return s
+
+    # Accept only if the result looks like Russian text.
+    letters = sum(1 for ch in fixed if ("A" <= ch <= "Z") or ("a" <= ch <= "z") or ("0" <= ch <= "9") or ("\u0400" <= ch <= "\u04FF"))
+    cyr = sum(1 for ch in fixed if ("\u0400" <= ch <= "\u04FF"))
+    if letters and cyr >= 3 and (cyr / letters) >= 0.6 and not any(ch in fixed for ch in _MOJIBAKE_MARKERS):
+        return fixed.strip()
+
+    return s
+
+
 def _utcnow_naive() -> datetime:
     return datetime.utcnow()
 
@@ -48,7 +82,7 @@ def upsert_shares_bulk(db: Session, items: list[dict[str, Any]]) -> int:
         ip = (m.get("ip") or "").strip()
         share_name = (m.get("share_name") or "").strip()
         share_type = int(m.get("share_type", 0) or 0)
-        remark = (m.get("remark") or "").strip()
+        remark = fix_remark_encoding((m.get("remark") or ""))
         if share_name.endswith("$"):
             share_type |= STYPE_SPECIAL
 
@@ -93,7 +127,7 @@ def replace_shares_snapshot(db: Session, items: list[dict[str, Any]], *, seen_ts
         ip = (m.get("ip") or "").strip()
         share_name = (m.get("share_name") or "").strip()
         share_type = int(m.get("share_type", 0) or 0)
-        remark = (m.get("remark") or "").strip()
+        remark = fix_remark_encoding((m.get("remark") or ""))
         if share_name.endswith("$"):
             share_type |= STYPE_SPECIAL
 
