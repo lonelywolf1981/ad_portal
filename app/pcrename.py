@@ -252,8 +252,15 @@ $a =New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -Exe
 $s = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 40) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
 Register-ScheduledTask -TaskName 'JSQ post-rename' -Action $a -Trigger (New-ScheduledTaskTrigger -AtStartup) -Settings $s -User SYSTEM -RunLevel Highest -Force | Out-Null
 $cred = New-Object PSCredential('{user}', (ConvertTo-SecureString ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{b64(pw)}'))) -AsPlainText -Force))
-$res = Rename-Computer -NewName '{new}' -DomainCredential $cred -Force -PassThru -WarningAction SilentlyContinue
-if (-not $res.HasSucceeded) {{ Unregister-ScheduledTask -TaskName 'JSQ post-rename' -Confirm:$false; throw "Rename-Computer не выполнен" }}
+try {{
+    $res = Rename-Computer -NewName '{new}' -DomainCredential $cred -Force -PassThru -WarningAction SilentlyContinue
+    if (-not $res.HasSucceeded) {{ throw "Rename-Computer не выполнен" }}
+}} catch {{
+    # nothing must be left behind on the PC when the rename fails
+    Unregister-ScheduledTask -TaskName 'JSQ post-rename' -Confirm:$false -ErrorAction SilentlyContinue
+    Remove-Item $d -Recurse -Force -ErrorAction SilentlyContinue
+    throw
+}}
 $msg = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{b64(_REBOOT_MSG)}'))
 $ra = New-ScheduledTaskAction -Execute 'shutdown.exe' -Argument ('/r /t 300 /d p:2:4 /c "' + $msg + '"')
 $rt = New-ScheduledTaskTrigger -Once -At ([datetime]'{warn_at:%Y-%m-%dT%H:%M:%S}')
