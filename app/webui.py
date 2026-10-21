@@ -66,11 +66,15 @@ def set_session_cookie(resp: Response, payload: dict) -> None:
     """Set signed session cookie (kept in one place for all auth flows)."""
     env = get_env()
     token = create_session(payload)
+    # Over HTTPS the portal is also opened inside an iframe of the admin's local http dashboard
+    # (dashboard.jsq.home:8787). http vs https makes that a cross-site frame, where a Lax cookie is
+    # dropped and login loops back to /login. SameSite=None requires Secure; CSRF is covered by
+    # CSRFMiddleware (Origin/Referer/HX-Request checks).
     resp.set_cookie(
         key="ad_portal_session",
         value=token,
         httponly=True,
         secure=env.cookie_secure,
-        samesite="lax",
+        samesite="none" if env.cookie_secure else "lax",
         max_age=SESSION_MAX_AGE,
     )
