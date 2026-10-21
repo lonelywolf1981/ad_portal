@@ -33,6 +33,9 @@ class CSRFMiddleware(BaseHTTPMiddleware):
             # Browser CSP violation reports: no Origin/Referer, no session, only logged.
             if request.url.path == "/csp-report":
                 return await call_next(request)
+            # Bearer-token API (TS1 pager sync): no cookies are used there, so no CSRF risk.
+            if request.url.path == "/api/v1/pager-sync/papercut":
+                return await call_next(request)
 
             origin = request.headers.get("origin", "").strip()
             referer = request.headers.get("referer", "").strip()

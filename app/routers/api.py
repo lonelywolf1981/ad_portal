@@ -9,6 +9,13 @@ nginx additionally lets /api/ through only from the agent's address. Every call 
   GET /api/v1/host/{host}           who was seen on the host (scan history); ?live=1 asks the host right now
   GET /api/v1/host/{host}/shares    SMB shares from the last scan
   GET /api/v1/scan                  last network scan: time and summary
+  GET /api/v1/pins/{login}          the user's PIN codes (AD otherPager = PaperCut card numbers)
+  GET /api/v1/pins-missing          enabled users with empty otherPager
+  GET /api/v1/pager-sync            last PaperCut -> AD PIN sync reports (no PIN values)
+
+  POST /api/v1/pager-sync/papercut  TS1 hourly sends PaperCut card numbers; the portal fills/updates otherPager
+                                    (own token, env PAGERSYNC_TOKEN_SHA256; nginx lets it through only from TS1).
+                                    The only call here that changes AD — see app/pagersync.py.
 """
 from __future__ import annotations
 
@@ -57,13 +64,13 @@ def _filetime(v) -> str | None:
     return _local(datetime(1601, 1, 1, tzinfo=timezone.utc) + timedelta(microseconds=n // 10))
 
 
-def _auth(request: Request) -> dict | None:
-    expected = (os.getenv("API_READ_TOKEN_SHA256") or "").strip().lower()
+def _auth(request: Request, env: str = "API_READ_TOKEN_SHA256", who: str = "api-agent") -> dict | None:
+    expected = (os.getenv(env) or "").strip().lower()
     hdr = request.headers.get("authorization", "")
     if not expected or not hdr.lower().startswith("bearer "):
         return None
     got = hashlib.sha256(hdr[7:].strip().encode("utf-8")).hexdigest()
-    return {"username": "api-agent"} if hmac.compare_digest(got, expected) else None
+    return {"username": who} if hmac.compare_digest(got, expected) else None
 
 
 def _deny(request: Request) -> JSONResponse:
@@ -217,3 +224,85 @@ def api_scan(request: Request):
                "interval_min": st.net_scan_interval_min, "subnets": [c for c in (st.net_scan_cidrs or "").split() if c]}
     audit_action(request, who, "api", "scan", True, "")
     return out
+
+
+@router.get("/pins/{login}")
+def api_pins(request: Request, login: str):
+    who = _auth(request)
+    if not who:
+        return _deny(request)
+    login = (login or "").strip()
+    cl = _client()
+    if not cl:
+        return JSONResponse({"ok": False, "error": "AD not configured"}, status_code=503)
+    u = cl.find_user_by_login(login)
+    if not u:
+        audit_action(request, who, "api", "pins", False, login)
+        return JSONResponse({"ok": False, "error": "user not found", "login": login}, status_code=404)
+    _ok, _msg, d = cl.get_user_details(u.dn)
+    pins = (d or {}).get("otherPager") or []
+    pins = [str(p) for p in ([pins] if isinstance(pins, str) else pins) if p]
+    audit_action(request, who, "api", "pins", True, u.sam or login)
+    return {"ok": True, "login": u.sam, "name": u.display_name, "pins": pins}
+
+
+@router.get("/pins-missing")
+def api_pins_missing(request: Request):
+    who = _auth(request)
+    if not who:
+        return _deny(request)
+    from ..pagersync import _SEARCH_BASE, _excluded
+
+    cl = _client()
+    if not cl:
+        return JSONResponse({"ok": False, "error": "AD not configured"}, status_code=503)
+    ok, msg, items = cl.list_users_without_pin()
+    audit_action(request, who, "api", "pins-missing", ok, "")
+    if not ok:
+        return JSONResponse({"ok": False, "error": msg}, status_code=502)
+    base = _SEARCH_BASE.lower()
+    users = [{"login": i["sam"], "name": i["display"]} for i in items
+             if i["dn"].lower().endswith(base) and not _excluded(i["sam"])]
+    return {"ok": True, "count": len(users), "users": users}
+
+
+@router.get("/pager-sync")
+def api_pager_sync(request: Request, n: int = 5):
+    who = _auth(request)
+    if not who:
+        return _deny(request)
+    from ..pagersync import last_reports
+
+    audit_action(request, who, "api", "pager-sync", True, "")
+    return {"ok": True, "reports": last_reports(max(1, min(n, 50)))}
+
+
+@router.post("/pager-sync/papercut")
+async def api_pager_sync_papercut(request: Request):
+    who = _auth(request, "PAGERSYNC_TOKEN_SHA256", "pagersync-ts1")
+    if not who:
+        return _deny(request)
+    from starlette.concurrency import run_in_threadpool
+
+    from ..pagersync import run_sync, store_report
+
+    try:
+        body = await request.json()
+        entries = list(body.get("entries") or [])
+        apply = bool(body.get("apply", False))
+    except Exception:
+        return JSONResponse({"ok": False, "error": "bad json"}, status_code=400)
+    try:
+        rep = await run_in_threadpool(run_sync, entries, apply=apply)
+    except Exception as e:
+        audit_action(request, who, "api", "pager-sync", False, f"{type(e).__name__}: {e}")
+        rep = {"ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "apply": apply, "fatal": f"{type(e).__name__}: {e}"}
+        store_report(rep)
+        return JSONResponse({"ok": False, **rep}, status_code=502)
+    store_report(rep)
+    for kind in ("filled", "updated"):
+        for sam in rep[kind]:
+            audit_action(request, who, "api", f"otherPager {kind}", apply, sam)
+    audit_action(request, who, "api", "pager-sync", not rep["errors"],
+                 f"apply={apply} filled={len(rep['filled'])} updated={len(rep['updated'])} errors={len(rep['errors'])}")
+    return {"ok": True, **rep}
