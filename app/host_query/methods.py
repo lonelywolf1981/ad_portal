@@ -3,6 +3,19 @@ from __future__ import annotations
 from ..utils.tcp_probe import tcp_probe
 from ..env_settings import get_env
 from .utils import dedupe_users
+from . import kerberos
+
+
+def _winrm_transport() -> str:
+    # Kerberos: the caller passes an FQDN target and 'user@REALM' (ticket from kerberos.ensure_ticket).
+    return "kerberos" if kerberos.enabled() else "ntlm"
+
+
+def _smb_login(smb, username: str, password: str, domain: str) -> None:
+    if kerberos.enabled():
+        smb.kerberosLogin(username, password, domain)  # domain = REALM; KDC found via DNS / ticket cache
+    else:
+        smb.login(username, password, domain)
 
 
 def _decode_winrm_output(raw: bytes) -> str:
@@ -120,7 +133,7 @@ $users | Sort-Object -Unique
             sess = winrm.Session(
                 ep,
                 auth=(username, password),
-                transport="ntlm",
+                transport=_winrm_transport(),
                 server_cert_validation=cert_validation,
                 read_timeout_sec=read_timeout,
                 operation_timeout_sec=op_timeout,
@@ -158,7 +171,7 @@ def wmi_query_user(target: str, domain: str, username: str, password: str) -> li
             "",
             "",
             oxidResolver=True,
-            doKerberos=False,
+            doKerberos=kerberos.enabled(),
         )
         iInterface = dcom.CoCreateInstanceEx(wmi.CLSID_WbemLevel1Login, wmi.IID_IWbemLevel1Login)
         iWbemLevel1Login = wmi.IWbemLevel1Login(iInterface)
@@ -203,7 +216,7 @@ def smb_query_users(target: str, domain: str, username: str, password: str) -> l
         raise RuntimeError("SMB порт 445 недоступен")
 
     smb = SMBConnection(remoteName=target, remoteHost=target, sess_port=445, timeout=7)
-    smb.login(username, password, domain)
+    _smb_login(smb, username, password, domain)
 
     users: list[str] = []
 
@@ -336,7 +349,7 @@ try {
             sess = winrm.Session(
                 ep,
                 auth=(username, password),
-                transport="ntlm",
+                transport=_winrm_transport(),
                 server_cert_validation=cert_validation,
                 read_timeout_sec=read_timeout,
                 operation_timeout_sec=op_timeout,
@@ -393,7 +406,7 @@ def wmi_enum_shares(target: str, domain: str, username: str, password: str) -> l
             "",
             "",
             oxidResolver=True,
-            doKerberos=False,
+            doKerberos=kerberos.enabled(),
         )
         iInterface = dcom.CoCreateInstanceEx(wmi.CLSID_WbemLevel1Login, wmi.IID_IWbemLevel1Login)
         iWbemLevel1Login = wmi.IWbemLevel1Login(iInterface)
@@ -442,7 +455,7 @@ def smb_enum_shares(target: str, domain: str, username: str, password: str) -> l
         raise RuntimeError("SMB порт 445 недоступен")
 
     smb = SMBConnection(remoteName=target, remoteHost=target, sess_port=445, timeout=7)
-    smb.login(username, password, domain)
+    _smb_login(smb, username, password, domain)
 
     shares: list[dict] = []
     try:
@@ -539,7 +552,7 @@ try {{
             sess = winrm.Session(
                 ep,
                 auth=(username, password),
-                transport="ntlm",
+                transport=_winrm_transport(),
                 server_cert_validation=cert_validation,
                 read_timeout_sec=read_timeout,
                 operation_timeout_sec=op_timeout,

@@ -14,6 +14,8 @@ class EnvSettings(BaseSettings):
 
     redis_url: str = Field("redis://redis:6379/0", alias="REDIS_URL")
     host_query_winrm_insecure: bool = Field(False, alias="HOST_QUERY_WINRM_INSECURE")
+    # "kerberos" (default) or "ntlm" (rollback): how host queries authenticate to workstations.
+    host_query_auth: str = Field("kerberos", alias="HOST_QUERY_AUTH")
 
     class Config:
         populate_by_name = True

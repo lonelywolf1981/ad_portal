@@ -12,6 +12,20 @@ from .methods import (
 from .models import Attempt
 from .targets import normalize_targets
 from .utils import dedupe_users, run_with_timeout
+from . import kerberos
+
+
+def _kerberize(targets: list[str], query_username: str, query_password: str, domain_suffix: str):
+    """Kerberos mode: FQDN targets, 'user@REALM' for WinRM, (user, REALM) for WMI/SMB, fresh TGT.
+
+    Raises RuntimeError if a ticket cannot be obtained or the host has no DNS name.
+    """
+    k_targets = kerberos.kerberos_targets(targets, domain_suffix)
+    if not k_targets:
+        raise RuntimeError("Kerberos: нет DNS-имени для хоста (PTR), опрос по NTLM отключён.")
+    user, realm = kerberos.split_principal(query_username, domain_suffix)
+    kerberos.ensure_ticket(query_username, query_password, domain_suffix)
+    return k_targets, f"{user}@{realm}", realm, user
 
 
 def find_logged_on_users(
@@ -56,6 +70,13 @@ def find_logged_on_users(
         )
 
     attempts: list[Attempt] = []
+    if kerberos.enabled():
+        try:
+            targets, winrm_user, smb_domain, smb_user = _kerberize(targets, query_username, query_password, domain_suffix)
+        except Exception as e:
+            attempts.append(Attempt("Kerberos", "error", str(e)[:300], 0, []))
+            return [], "", int((time.perf_counter() - started) * 1000), attempts
+
 
     def try_winrm() -> list[str]:
         last: Exception | None = None
@@ -151,6 +172,11 @@ def find_host_shares(
     winrm_user, smb_domain, smb_user = split_credential(query_username, domain_suffix)
     if not (winrm_user and smb_user and query_password):
         return []
+    if kerberos.enabled():
+        try:
+            targets, winrm_user, smb_domain, smb_user = _kerberize(targets, query_username, query_password, domain_suffix)
+        except Exception:
+            return []
 
     def try_winrm() -> list[dict]:
         last: Exception | None = None
@@ -222,6 +248,11 @@ def close_host_share(
     winrm_user, _smb_domain, _smb_user = split_credential(query_username, domain_suffix)
     if not (winrm_user and query_password):
         return False, "Не заданы учётные данные host query.", ""
+    if kerberos.enabled():
+        try:
+            targets, winrm_user, _d, _u = _kerberize(targets, query_username, query_password, domain_suffix)
+        except Exception as e:
+            return False, str(e)[:300], ""
 
     last_msg = "WinRM ошибка"
     for t in targets:
