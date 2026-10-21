@@ -99,6 +99,8 @@ from .routers.shares import router as shares_router  # noqa: E402
 
 app.include_router(health_router)
 app.include_router(csp_router)
+from .routers.api import router as api_router  # noqa: E402
+app.include_router(api_router)
 app.include_router(auth_router)
 app.include_router(index_router)
 app.include_router(settings_router)
