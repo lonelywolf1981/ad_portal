@@ -34,7 +34,7 @@ class CSRFMiddleware(BaseHTTPMiddleware):
             if request.url.path == "/csp-report":
                 return await call_next(request)
             # Bearer-token API (TS1 pager sync): no cookies are used there, so no CSRF risk.
-            if request.url.path == "/api/v1/pager-sync/papercut":
+            if request.url.path in ("/api/v1/pager-sync/papercut", "/api/v1/pc-rename"):
                 return await call_next(request)
 
             origin = request.headers.get("origin", "").strip()

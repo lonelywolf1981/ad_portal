@@ -259,3 +259,11 @@ def run_network_scan() -> dict:
             st.net_scan_lock_ts = None
             db.commit()
         return {"status": "error"}
+
+
+@celery_app.task(name="app.tasks.pcrename_check")
+def pcrename_check(job_id: str, attempt: int = 0) -> dict | None:
+    """After a PC rename reboot: check AD/DNS/Wi-Fi certificate under the new name (see app/pcrename.py)."""
+    from .pcrename import check
+
+    return check(job_id, attempt)

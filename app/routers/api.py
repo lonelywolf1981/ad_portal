@@ -370,3 +370,40 @@ async def api_pager_sync_papercut(request: Request):
     audit_action(request, who, "api", "pager-sync", not rep["errors"],
                  f"apply={apply} filled={len(rep['filled'])} updated={len(rep['updated'])} errors={len(rep['errors'])}")
     return {"ok": True, **rep}
+
+
+@router.post("/pc-rename")
+async def api_pc_rename(request: Request):
+    """Rename a PC: {"old", "new", "reboot_at": "HH:MM"|"now", "apply": false|true}. Own token (PCRENAME_TOKEN_SHA256),
+    used only by the infra-ops action pc-rename (plan -> Андрей's button -> apply). See app/pcrename.py."""
+    who = _auth(request, "PCRENAME_TOKEN_SHA256", "pcrename-infraops")
+    if not who:
+        return _deny(request)
+    from starlette.concurrency import run_in_threadpool
+
+    from .. import pcrename
+
+    try:
+        body = await request.json()
+        old, new, when, do = str(body.get("old") or ""), str(body.get("new") or ""), str(body.get("reboot_at") or ""), bool(body.get("apply"))
+    except Exception:
+        return JSONResponse({"ok": False, "error": "bad json"}, status_code=400)
+    try:
+        res = await run_in_threadpool(pcrename.apply if do else pcrename.plan, old, new, when)
+    except Exception as e:  # noqa: BLE001
+        audit_action(request, who, "api", f"pc-rename {'apply' if do else 'plan'}", False, f"{old}->{new}: {type(e).__name__}: {e}"[:300])
+        return JSONResponse({"ok": False, "error": f"{type(e).__name__}: {e}"[:400]}, status_code=502)
+    audit_action(request, who, "api", f"pc-rename {'apply' if do else 'plan'}", res.get("ok", False),
+                 f"{old}->{new} reboot {res.get('reboot_at')}; " + "; ".join(res.get("errors") or [])[:200])
+    return res
+
+
+@router.get("/pc-rename/jobs")
+def api_pc_rename_jobs(request: Request):
+    who = _auth(request)
+    if not who:
+        return _deny(request)
+    from .. import pcrename
+
+    audit_action(request, who, "api", "pc-rename jobs", True, "")
+    return {"ok": True, "jobs": pcrename.list_jobs()[:20]}
