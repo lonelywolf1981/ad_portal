@@ -21,18 +21,35 @@ class ADConfig:
     _resolved_host: str = field(default="", init=False, repr=False)
 
     @property
+    def dc_list(self) -> list[str]:
+        """dc_short may hold several DCs separated by comma/space ("dc1,dc2"): first is primary."""
+        items = [x.strip() for x in (self.dc_short or "").replace(";", ",").replace(" ", ",").split(",")]
+        return [x for x in items if x]
+
+    @property
+    def hosts(self) -> list[str]:
+        """FQDNs of all configured DCs (primary first). Used for the LDAP server pool."""
+        dcs = self.dc_list
+        if not dcs:
+            return [self.host]
+        return [self.host] + [build_dc_fqdn(d, self.domain) for d in dcs[1:]]
+
+    @property
     def host(self) -> str:
         if self._resolved_host:
             return self._resolved_host
-        # Если задан DNS сервер, используем его для резолва
-        if self.dns_server:
+        primary = (self.dc_list or [""])[0]
+        # Если задан DNS сервер, используем его для резолва.
+        # При проверке сертификата (tls_validate) подключаемся только по имени: сертификат DC
+        # выписан на FQDN, и подключение по IP не пройдёт проверку имени.
+        if self.dns_server and not self.tls_validate:
             from ..utils.net import resolve_hostname_with_dns
-            resolved_ip = resolve_hostname_with_dns(build_dc_fqdn(self.dc_short, self.domain), self.dns_server)
+            resolved_ip = resolve_hostname_with_dns(build_dc_fqdn(primary, self.domain), self.dns_server)
             if resolved_ip:
                 self._resolved_host = resolved_ip
                 return self._resolved_host
         # Если DNS сервер не задан или резолв не удался, используем обычное формирование FQDN
-        self._resolved_host = build_dc_fqdn(self.dc_short, self.domain)
+        self._resolved_host = build_dc_fqdn(primary, self.domain)
         return self._resolved_host
 
     @property

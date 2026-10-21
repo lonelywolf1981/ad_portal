@@ -9,6 +9,8 @@ import re
 
 from ldap3 import (
     Server,
+    ServerPool,
+    FIRST,
     Connection,
     ALL,
     SUBTREE,
@@ -25,6 +27,10 @@ from ldap3.core.exceptions import LDAPException
 
 from .models import ADConfig, ADUser
 from .utils import escape_ldap_filter_value, filetime_to_dt_str
+
+# Without timeouts a dead DC kept requests hanging until the nginx proxy timeout (240 s).
+_CONNECT_TIMEOUT_S = 5
+_RECEIVE_TIMEOUT_S = 30
 
 
 class ADClient:
@@ -93,17 +99,34 @@ class ADClient:
                 tls_kwargs["ca_certs_file"] = ca_file
 
         tls = Tls(**tls_kwargs)
+        self._tls = tls
 
-        self.server = Server(
-            host=cfg.host,
-            port=cfg.port,
-            use_ssl=cfg.use_ssl,
-            get_info=ALL,
-            tls=tls,
-        )
+        # One Server per configured DC (primary first). With several DCs ldap3 fails over
+        # to the next one when the current DC does not answer.
+        servers = [
+            Server(
+                host=h,
+                port=cfg.port,
+                use_ssl=cfg.use_ssl,
+                get_info=ALL,
+                tls=tls,
+                connect_timeout=_CONNECT_TIMEOUT_S,
+            )
+            for h in cfg.hosts
+        ]
+        if len(servers) > 1:
+            self.server = ServerPool(servers, FIRST, active=1, exhaust=60)
+        else:
+            self.server = servers[0]
 
     def _conn(self, user: str, password: str) -> Connection:
-        conn = Connection(self.server, user=user, password=password, auto_bind=False)
+        conn = Connection(
+            self.server,
+            user=user,
+            password=password,
+            auto_bind=False,
+            receive_timeout=_RECEIVE_TIMEOUT_S,
+        )
         conn.open()
         if self.cfg.starttls:
             conn.start_tls()
@@ -136,7 +159,7 @@ class ADClient:
 
         # Use a dedicated Server instance with connect_timeout to avoid hanging.
         try:
-            tls = self.server.tls
+            tls = self._tls
             srv = Server(
                 host=self.cfg.host,
                 port=self.cfg.port,
@@ -192,9 +215,11 @@ class ADClient:
             if result != 0:
                 return False, f"Не удается подключиться к {target_host}:{self.cfg.port}. Проверьте доступность хоста и порта."
 
-            tls = self.server.tls
+            tls = self._tls
             srv = Server(
-                host=target_host,  # Используем резолвнутый IP
+                # With certificate validation connect by name (the DC certificate holds the FQDN,
+                # not the IP); the resolved IP is only used for the TCP check above.
+                host=self.cfg.host if self.cfg.tls_validate else target_host,
                 port=self.cfg.port,
                 use_ssl=self.cfg.use_ssl,
                 get_info=ALL,
