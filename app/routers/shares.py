@@ -13,8 +13,10 @@ from ..deps import require_initialized_or_redirect
 from ..host_query.api import close_host_share
 from ..presence import fmt_dt_ru
 from ..repo import db_session, get_or_create_settings
+from ..services.audit import audit_action
 from ..shares import delete_share, fix_remark_encoding, search_shares, STYPE_SPECIAL
 from ..utils.numbers import clamp_int
+from ..utils.xlsx import xl_safe
 from ..utils.net import ip_key, ip_subnet_key, natural_key, short_hostname, subnet_badge_class
 from ..webui import templates
 
@@ -365,6 +367,7 @@ def shares_close(
     else:
         log.warning("Share close failed by %s: target=%s share=%s method=%s msg=%s", user_name, target, share_name, method, msg)
         res = {"ok": False, "message": f"Не удалось закрыть ресурс {share_name}.", "details": msg}
+    audit_action(request, auth, "share", "close_share", ok, f"{target} / {share_name} ({method}): {msg}")
 
     return _render_shares_results(
         request,
@@ -432,11 +435,11 @@ def shares_export_xlsx(
     for r in rows:
         ws.append(
             [
-                (r.host or "").strip() or "—",
-                (r.ip or "").strip() or "—",
-                (r.share_name or "").strip() or "",
+                xl_safe((r.host or "").strip() or "—"),
+                xl_safe((r.ip or "").strip() or "—"),
+                xl_safe((r.share_name or "").strip() or ""),
                 _share_type_label(r.share_name or "", r.share_type or 0),
-                _fix_remark(r.share_name or "", (r.remark or "").strip()) or "",
+                xl_safe(_fix_remark(r.share_name or "", (r.remark or "").strip()) or ""),
                 fmt_dt_ru(getattr(r, "last_seen_ts", None)) or "—",
             ]
         )

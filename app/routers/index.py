@@ -4,6 +4,7 @@ import re
 import threading
 from datetime import datetime, timedelta, timezone
 import logging
+from urllib.parse import quote
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
@@ -250,10 +251,12 @@ def net_scan_poll(request: Request, last: str = ""):
         headers["HX-Refresh"] = "true"
 
     # Keep polling; always emit next token in the URL.
+    # No "load" trigger here: the element replaces itself (outerHTML), so "load" would fire a
+    # new request right after every swap and turn polling into a tight loop.
     html = (
         f"<div id='net-scan-poll' class='d-none' "
-        f"hx-get='/net-scan/poll?last={cur_token}' "
-        f"hx-trigger='load, every 5s' "
+        f"hx-get='/net-scan/poll?last={quote(cur_token)}' "
+        f"hx-trigger='every 5s' "
         f"hx-swap='outerHTML'></div>"
     )
     return HTMLResponse(content=html, status_code=200, headers=headers)

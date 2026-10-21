@@ -20,6 +20,7 @@ from ..ad_utils import split_group_dns
 from ..deps import require_session_or_hx_redirect
 from ..repo import db_session, get_or_create_settings
 from ..services import ad_test_and_load_groups, get_groups_cache, groups_dn_to_name_map, save_settings
+from ..services.audit import audit_action
 from ..services.settings import (
     AppSettingsSchema,
     export_settings,
@@ -867,7 +868,7 @@ def settings_validate_net(
 
 
 @router.get("/settings/export.json")
-def settings_export_json(request: Request, include_secrets: int = 0):
+def settings_export_json(request: Request):
     auth = require_session_or_hx_redirect(request)
     if not isinstance(auth, dict):
         return auth
@@ -878,8 +879,11 @@ def settings_export_json(request: Request, include_secrets: int = 0):
             return JSONResponse({"ok": False, "message": "forbidden"}, status_code=403)
 
         data = typed
-        payload = export_settings(data, include_secrets=bool(include_secrets))
+        # Secrets are never exported: a GET that returns plaintext AD / host-query passwords
+        # can be triggered by any script running in an admin's session.
+        payload = export_settings(data, include_secrets=False)
 
+    audit_action(request, auth, "settings", "export", True, "без паролей")
     schema_v = int(payload.get("schema_version") or 0)
     resp = JSONResponse(payload)
     resp.headers["Content-Disposition"] = f"attachment; filename=ad_portal_settings_v{schema_v}.json"
@@ -919,6 +923,7 @@ async def settings_import_json(request: Request, file: UploadFile = File(...)):
         imported = import_settings(raw)
     except Exception as e:
         log.warning("Ошибка импорта настроек из JSON", exc_info=True)
+        audit_action(request, auth, "settings", "import", False, str(e))
         if hx:
             return htmx_alert(ui_result(False, "Импорт: ошибка", str(e)), status_code=200)
         return RedirectResponse(url="/settings?saved=0&import_err=1", status_code=303)
@@ -935,11 +940,12 @@ async def settings_import_json(request: Request, file: UploadFile = File(...)):
         if not (eff.host_query.password or "").strip():
             missing.append("Host query password")
 
+    audit_action(request, auth, "settings", "import", True, f"{getattr(file, 'filename', '')}; нет паролей: {', '.join(missing) or '—'}")
     if hx:
         details = "Настройки применены"
         if missing:
-            details += "\n\nВнимание: в импортируемом файле отсутствуют пароли (или они пустые): " + ", ".join(missing) + "."
-            details += "\nЭкспортируйте настройки с паролями (кнопка 'Экспорт (с паролями)'), либо введите пароль(и) вручную и нажмите 'Сохранить'."
+            details += "\n\nВнимание: пароли не заданы: " + ", ".join(missing) + "."
+            details += "\nВведите пароль(и) вручную и нажмите 'Сохранить' (пароли в экспорт не попадают)."
         return htmx_alert(ui_result(True, "Импорт: успешно", details), status_code=200)
     return RedirectResponse(url="/settings?saved=1", status_code=303)
 

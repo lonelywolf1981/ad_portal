@@ -17,6 +17,7 @@ from ..repo import db_session, get_or_create_settings
 from ..services import ad_cfg_from_settings
 from ..utils.dn import dn_to_id, id_to_dn
 from ..utils.net import looks_like_ipv4, short_hostname
+from ..utils.xlsx import xl_safe
 from ..viewmodels.user_details import build_detail_items
 from ..webui import htmx_alert, templates, ui_result
 
@@ -418,9 +419,9 @@ def users_ad_disabled_export(request: Request):
 
     for u in users:
         ws.append([
-            u.get("display", "") or "—",
-            u.get("sam", "") or "",
-            u.get("mail", "") or "",
+            xl_safe(u.get("display", "") or "—"),
+            xl_safe(u.get("sam", "") or ""),
+            xl_safe(u.get("mail", "") or ""),
             u.get("when_changed", "") or "—",
         ])
 

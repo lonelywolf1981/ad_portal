@@ -195,7 +195,7 @@
 	                        class="adp-share-link"
 	                        href="#"
 	                        data-share-kind="{{ r.share_kind if r.share_kind else 'disk' }}"
-	                        onclick="window.adpOpenShare('{{ _host|e }}','{{ r.share_name|e }}'); return false;"
+	                        data-host="{{ _host }}" data-share="{{ r.share_name }}" onclick="window.adpOpenShare(this.dataset.host, this.dataset.share); return false;"
 	                        title="Открыть в проводнике: \\\\{{ _host }}\\{{ r.share_name }} (путь будет скопирован)"
 	                      ><span class="adp-share-ico" aria-hidden="true">{{ r.share_icon if r.share_icon else '📁' }}</span><code>{{ _share_display }}</code></a>
 	                    {% else %}
@@ -211,7 +211,7 @@
                         hx-post="/shares/close"
                         hx-target="#shares-results"
                         hx-swap="innerHTML"
-                        onsubmit="return confirm('Закрыть доступ к ресурсу {{ (r.share_name_display if r.share_name_display else r.share_name) }} на хосте {{ g.host if g.host else g.ip }}?');"
+                        hx-confirm="Закрыть доступ к ресурсу {{ (r.share_name_display if r.share_name_display else r.share_name) }} на хосте {{ g.host if g.host else g.ip }}?"
                       >
                         <input type="hidden" name="host" value="{{ g.host }}">
                         <input type="hidden" name="ip" value="{{ g.ip }}">

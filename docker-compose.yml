@@ -1,8 +1,16 @@
+# Container logs: json-file without limits grew to GBs (nginx); keep 5 x 20 MB per container.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "5"
+
 services:
   web:
     build: .
     container_name: ad_portal_web
     restart: unless-stopped
+    logging: *default-logging
     env_file:
       - .env
     volumes:
@@ -20,6 +28,7 @@ services:
     image: redis:7-alpine
     container_name: ad_portal_redis
     restart: unless-stopped
+    logging: *default-logging
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - redis_data:/data
@@ -30,6 +39,7 @@ services:
     build: .
     container_name: ad_portal_worker
     restart: unless-stopped
+    logging: *default-logging
     env_file:
       - .env
     depends_on:
@@ -47,11 +57,12 @@ services:
     build: .
     container_name: ad_portal_beat
     restart: unless-stopped
+    logging: *default-logging
     env_file:
       - .env
     depends_on:
       - redis
-    command: ["celery", "-A", "app.celery_app:celery_app", "beat", "-l", "INFO"]
+    command: ["celery", "-A", "app.celery_app:celery_app", "beat", "-l", "WARNING"]
     volumes:
       - ./data:/app/data
     networks:
@@ -64,6 +75,7 @@ services:
     image: nginx:1.27-alpine
     container_name: ad_portal_nginx
     restart: unless-stopped
+    logging: *default-logging
     depends_on:
       - web
     ports:

@@ -5,7 +5,7 @@
     {% for g in groups %}
       <button type="button"
         class="list-group-item list-group-item-action py-1 px-2 small d-flex justify-content-between align-items-center"
-        onclick="editUserAddGroup('{{ g.dn|e }}')">
+        data-dn="{{ g.dn }}" onclick="editUserAddGroup(this.dataset.dn)">
         <span>{{ g.name }}{% if g.description %} <span class="text-secondary">— {{ g.description }}</span>{% endif %}</span>
         <span class="text-primary">+ Добавить</span>
       </button>

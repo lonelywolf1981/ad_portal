@@ -12,6 +12,7 @@ from ..mappings import search_host_user_matches
 from ..presence import fmt_dt_ru
 from ..repo import db_session
 from ..utils.net import ip_key, ip_subnet_key, natural_key, short_hostname, subnet_badge_class
+from ..utils.xlsx import xl_safe
 from ..webui import templates
 
 router = APIRouter()
@@ -154,9 +155,9 @@ def presence_export_xlsx(request: Request, q: str = "", sort: str = "when", dir:
     for r in rows:
         ws.append(
             [
-                (r.host or "").strip() or "—",
-                (r.ip or "").strip() or "—",
-                (r.user_login or "").strip() or "",
+                xl_safe((r.host or "").strip() or "—"),
+                xl_safe((r.ip or "").strip() or "—"),
+                xl_safe((r.user_login or "").strip() or ""),
                 fmt_dt_ru(getattr(r, "last_seen_ts", None)) or "—",
             ]
         )
