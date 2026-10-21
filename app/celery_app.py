@@ -36,3 +36,33 @@ celery_app.conf.beat_schedule = {
 
 # Ensure task modules are imported
 from . import tasks  # noqa: E402,F401
+
+from celery.signals import worker_ready  # noqa: E402
+
+
+@worker_ready.connect
+def _clear_stale_scan_lock(**_kwargs) -> None:
+    """A single worker runs the scans: when it (re)starts, no scan can still be running.
+
+    A lock left by a killed worker (container recreate, OOM) otherwise blocked scans until the
+    stale-lock TTL expired.
+    """
+    import logging
+
+    from sqlalchemy import update
+
+    from .models import AppSettings
+    from .repo import db_session
+
+    try:
+        with db_session() as db:
+            res = db.execute(
+                update(AppSettings)
+                .where(AppSettings.id == 1, AppSettings.net_scan_lock_ts.is_not(None))
+                .values(net_scan_lock_ts=None, net_scan_last_summary="Прервано перезапуском worker.")
+            )
+            db.commit()
+            if res.rowcount:
+                logging.getLogger(__name__).warning("Снята блокировка net-scan, оставшаяся от прерванного сканирования")
+    except Exception:
+        logging.getLogger(__name__).warning("Не удалось проверить блокировку net-scan при старте worker", exc_info=True)

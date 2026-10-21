@@ -19,8 +19,10 @@ from .timezone_utils import format_ru_local
 from .utils.numbers import clamp_int
 
 
-# If a scan crashes mid-flight, allow new runs after this TTL.
-_LOCK_STALE_HOURS = 1
+# If a scan crashes mid-flight, allow new runs after this TTL. A scan of all subnets can take more than an
+# hour, and a 1 h TTL let a second scan start in parallel; a lock left by a restarted worker is cleared on
+# worker start (celery_app._clear_stale_scan_lock).
+_LOCK_STALE_HOURS = 6
 log = logging.getLogger(__name__)
 
 

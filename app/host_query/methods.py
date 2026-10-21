@@ -38,6 +38,19 @@ def _decode_winrm_output(raw: bytes) -> str:
     return raw.decode("utf-8", errors="replace")
 
 
+def _ndr(obj, *keys):
+    """Walk nested impacket NDR structures by key (they support [] but not .get())."""
+    cur = obj
+    for k in keys:
+        if cur is None:
+            return None
+        try:
+            cur = cur[k]
+        except (KeyError, IndexError, TypeError):
+            return None
+    return cur
+
+
 def _safe_str(val) -> str:
     """Безопасное преобразование значения из impacket в строку."""
     if val is None:
@@ -181,7 +194,9 @@ def wmi_query_user(target: str, domain: str, username: str, password: str) -> li
 def smb_query_users(target: str, domain: str, username: str, password: str) -> list[str]:
     """SMB/RPC: wkssvc (interactive users) then srvsvc (network sessions)."""
     from impacket.smbconnection import SMBConnection  # type: ignore
-    from impacket.dcerpc.v5 import transport, wkst, srvsvc  # type: ignore
+    from impacket.dcerpc.v5 import transport, wkst  # type: ignore
+    from impacket.dcerpc.v5 import srvs as srvsvc  # type: ignore  # impacket names the SRVS module 'srvs'
+    from impacket.dcerpc.v5.dtypes import NULL  # type: ignore
     from impacket.dcerpc.v5.rpcrt import DCERPCException  # type: ignore
 
     if not tcp_probe(target, 445, timeout_s=2.0):
@@ -209,11 +224,13 @@ def smb_query_users(target: str, domain: str, username: str, password: str) -> l
         resp = wkst.hNetrWkstaUserEnum(dce, 1)
         dce.disconnect()
 
-        buf = resp.get("UserInfo", {}).get("WkstaUserInfo", {}).get("Level1", {}).get("Buffer", [])
+        buf = _ndr(resp, "UserInfo", "WkstaUserInfo", "Level1", "Buffer") or []
         for e in buf or []:
             try:
-                u = (e.get("wkui1_username") or "").strip()
-                d = (e.get("wkui1_logon_domain") or "").strip()
+                u = _safe_str(_ndr(e, "wkui1_username"))
+                d = _safe_str(_ndr(e, "wkui1_logon_domain"))
+                if u.endswith("$"):  # the computer's own account (DOMAIN\PC$), not a person
+                    continue
                 if u and d:
                     users.append(f"{d}\\{u}")
                 elif u:
@@ -238,13 +255,13 @@ def smb_query_users(target: str, domain: str, username: str, password: str) -> l
             dce = rpctransport.get_dce_rpc()
             dce.connect()
             dce.bind(srvsvc.MSRPC_UUID_SRVS)
-            resp = srvsvc.hNetrSessionEnum(dce, "\\\\" + target, None, 10, 0xFFFFFFFF, 0, 0)
+            resp = srvsvc.hNetrSessionEnum(dce, NULL, NULL, 10)
             dce.disconnect()
 
-            sess = resp.get("InfoStruct", {}).get("SessionInfo", {}).get("Level10", {}).get("Buffer", [])
+            sess = _ndr(resp, "InfoStruct", "SessionInfo", "Level10", "Buffer") or []
             for s in sess or []:
                 try:
-                    u = (s.get("sesi10_username") or "").strip()
+                    u = _safe_str(_ndr(s, "sesi10_username"))
                     if u:
                         users.append(u)
                 except Exception:
@@ -418,7 +435,8 @@ def smb_enum_shares(target: str, domain: str, username: str, password: str) -> l
       {"name": str, "type": int, "remark": str}
     """
     from impacket.smbconnection import SMBConnection  # type: ignore
-    from impacket.dcerpc.v5 import transport, srvsvc  # type: ignore
+    from impacket.dcerpc.v5 import transport  # type: ignore
+    from impacket.dcerpc.v5 import srvs as srvsvc  # type: ignore  # impacket names the SRVS module 'srvs'
 
     if not tcp_probe(target, 445, timeout_s=2.0):
         raise RuntimeError("SMB порт 445 недоступен")
@@ -440,18 +458,15 @@ def smb_enum_shares(target: str, domain: str, username: str, password: str) -> l
         dce = rpctransport.get_dce_rpc()
         dce.connect()
         dce.bind(srvsvc.MSRPC_UUID_SRVS)
-        resp = srvsvc.hNetrShareEnum(dce, "\\\\" + target, 1)
+        resp = srvsvc.hNetrShareEnum(dce, 1)
         dce.disconnect()
 
-        info = resp.get("InfoStruct", {})
-        share_info = info.get("ShareInfo", {})
-        level1 = share_info.get("Level1", {})
-        buf = level1.get("Buffer", [])
+        buf = _ndr(resp, "InfoStruct", "ShareInfo", "Level1", "Buffer") or []
         for entry in buf or []:
             try:
-                name = _safe_str(entry.get("shi1_netname"))
-                shi_type = int(entry.get("shi1_type", 0) or 0)
-                remark = _safe_str(entry.get("shi1_remark"))
+                name = _safe_str(_ndr(entry, "shi1_netname"))
+                shi_type = int(_ndr(entry, "shi1_type") or 0)
+                remark = _safe_str(_ndr(entry, "shi1_remark"))
                 if name:
                     shares.append({"name": name, "type": shi_type, "remark": remark})
             except Exception:
