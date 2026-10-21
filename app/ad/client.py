@@ -322,6 +322,45 @@ class ADClient:
                 pass
             return None
 
+    def get_login_state(self, login: str) -> tuple[bool, bool, list[str]] | None:
+        """(exists, enabled, memberOf DNs) for a login, or None if AD could not be asked.
+
+        Used to re-check open portal sessions: a disabled user or one removed from the allowed group
+        must lose access without waiting for the session to expire.
+        """
+        login = (login or "").strip()
+        base = self.cfg.base_dn
+        if not login or not base:
+            return None
+        conn: Connection | None = None
+        try:
+            conn = self._conn(self.cfg.bind_principal, self.cfg.bind_password)
+            if not conn.bind():
+                return None
+            safe = escape_ldap_filter_value(login)
+            flt = f"(userPrincipalName={safe})" if "@" in login else f"(sAMAccountName={safe})"
+            ok = conn.search(
+                search_base=base,
+                search_filter=f"(&(objectClass=user){flt})",
+                search_scope=SUBTREE,
+                attributes=["userAccountControl", "memberOf"],
+                size_limit=2,
+            )
+            if not ok or len(conn.entries) != 1:
+                return (False, False, [])
+            e = conn.entries[0]
+            uac = int(getattr(e, "userAccountControl").value or 0) if getattr(e, "userAccountControl", None) else 0
+            member_of = [str(x) for x in (getattr(e, "memberOf", []) or [])]
+            return (True, not bool(uac & 0x2), member_of)
+        except LDAPException:
+            return None
+        finally:
+            try:
+                if conn:
+                    conn.unbind()
+            except Exception:
+                pass
+
     def verify_password(self, user_dn: str, password: str) -> bool:
         conn: Connection | None = None
         try:

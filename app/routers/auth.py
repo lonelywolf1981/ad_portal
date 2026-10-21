@@ -7,6 +7,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 from ..repo import db_session, get_or_create_settings
 from ..services import audit_login, unified_authenticate
+from ..session import destroy_session
 from ..webui import htmx_alert, set_session_cookie, templates, ui_result
 
 
@@ -161,7 +162,9 @@ async def login_ad(request: Request):
 
 
 @router.get("/logout")
-def logout():
+def logout(request: Request):
+    # Delete the server-side session too: a copied cookie must not keep working after logout.
+    destroy_session(request.cookies.get("ad_portal_session", ""))
     resp = RedirectResponse(url="/login", status_code=303)
     resp.delete_cookie("ad_portal_session")
     return resp
