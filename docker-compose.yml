@@ -44,7 +44,7 @@ services:
       - .env
     depends_on:
       - redis
-    command: ["celery", "-A", "app.celery_app:celery_app", "worker", "-l", "INFO", "--concurrency", "2"]
+    command: ["celery", "-A", "app.celery_app:celery_app", "worker", "-l", "INFO", "--concurrency", "2", "--max-tasks-per-child", "1"]
     volumes:
       - ./data:/app/data
     networks:
