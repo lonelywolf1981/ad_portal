@@ -6,7 +6,7 @@
   <title>{{ title if title else "AD Tools" }}</title>
 
   <!-- Apply theme early to minimize flash between light/dark -->
-  <script>
+  <script nonce="{{ request.state.csp_nonce }}">
     (function () {
       const KEY = "adportal_theme";
       let theme = null;
@@ -20,6 +20,7 @@
   </script>
 
   <link href="/static/vendor/bootstrap.min.css" rel="stylesheet">
+  <meta name="htmx-config" content='{"inlineScriptNonce": "{{ request.state.csp_nonce }}"}'>
   <script src="/static/vendor/htmx.min.js"></script>
   <link href="/static/app.css" rel="stylesheet">
 </head>

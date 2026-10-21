@@ -133,7 +133,7 @@
   </div>
 </div>
 
-<script>
+<script nonce="{{ request.state.csp_nonce }}">
   // Clear stale alerts when switching between LOCAL/AD tabs.
   (function () {
     function clearEl(id) {

@@ -310,7 +310,7 @@
 </div>
 
 {% if user.get("settings") %}
-<script>
+<script nonce="{{ request.state.csp_nonce }}">
   /* Универсальная функция закрытия модалки AD-управления.
      Определена в main_tabs (server-side render) — всегда доступна для onclick в HTMX-фрагментах. */
   function closeAdMgmtModal() {

@@ -1,4 +1,4 @@
-<script>
+<script nonce="{{ request.state.csp_nonce }}">
   // When HTMX swaps modal content, show the Bootstrap modal.
   document.body.addEventListener('htmx:afterSwap', function (evt) {
     var tgt = evt.detail && evt.detail.target;

@@ -57,7 +57,7 @@
     </div>
   </div>
 
-	  <script>
+	  <script nonce="{{ request.state.csp_nonce }}">
 	    // Used by the "Expand/Collapse all" buttons in the Shares tab.
 	    window.adpSetSharesOpen = window.adpSetSharesOpen || function(open) {
 	      try {

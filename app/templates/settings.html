@@ -467,7 +467,7 @@
   </div>
 </div>
 
-<script>
+<script nonce="{{ request.state.csp_nonce }}">
 (function(){
   function toggleAdCaPem(){
     const cb = document.getElementById("ad_tls_validate");

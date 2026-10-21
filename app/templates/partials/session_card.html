@@ -99,7 +99,7 @@
   </div>
 </div>
 
-<script>
+<script nonce="{{ request.state.csp_nonce }}">
 (function(){
   const points = {{ stats_history_points|tojson }};
   const retentionDays = Number({{ stats_retention_days or 30 }});

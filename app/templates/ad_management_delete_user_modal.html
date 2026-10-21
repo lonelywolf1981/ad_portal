@@ -10,7 +10,7 @@
         hx-post="/ad-management/delete-user"
         hx-target="#deleteUserModalResult"
         hx-swap="innerHTML"
-        hx-on::after-request="handleAdMgmtModalResponse(event)"
+        data-adp-after-request="modal"
       >
         <div class="modal-body">
           {% if error %}

@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from .bootstrap import initialize_application
+from .csp import CSPMiddleware, router as csp_router
 
 
 class CSRFMiddleware(BaseHTTPMiddleware):
@@ -28,6 +29,9 @@ class CSRFMiddleware(BaseHTTPMiddleware):
             # HTMX requests send a custom header which cannot be attached by a
             # cross-site form post without CORS preflight.
             if request.headers.get("HX-Request"):
+                return await call_next(request)
+            # Browser CSP violation reports: no Origin/Referer, no session, only logged.
+            if request.url.path == "/csp-report":
                 return await call_next(request)
 
             origin = request.headers.get("origin", "").strip()
@@ -77,6 +81,7 @@ async def lifespan(application: FastAPI):
 
 app = FastAPI(title="AD Portal", lifespan=lifespan)
 app.add_middleware(CSRFMiddleware)
+app.add_middleware(CSPMiddleware)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 
@@ -93,6 +98,7 @@ from .routers.ip_phones import router as ip_phones_router  # noqa: E402
 from .routers.shares import router as shares_router  # noqa: E402
 
 app.include_router(health_router)
+app.include_router(csp_router)
 app.include_router(auth_router)
 app.include_router(index_router)
 app.include_router(settings_router)

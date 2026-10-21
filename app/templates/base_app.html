@@ -6,7 +6,7 @@
   <title>{{ title if title else "AD Tools" }}</title>
 
   <!-- Apply theme early to minimize flash between light/dark -->
-  <script>
+  <script nonce="{{ request.state.csp_nonce }}">
     (function () {
       const KEY = "adportal_theme";
       let theme = null;
@@ -20,6 +20,7 @@
   </script>
 
   <link href="/static/vendor/bootstrap.min.css" rel="stylesheet">
+  <meta name="htmx-config" content='{"inlineScriptNonce": "{{ request.state.csp_nonce }}"}'>
   <script src="/static/vendor/htmx.min.js"></script>
   <link href="/static/app.css" rel="stylesheet">
 </head>
@@ -49,8 +50,9 @@
 
   <script src="/static/vendor/bootstrap.bundle.min.js"></script>
   <script src="/static/theme.js"></script>
+  <script src="/static/csp-bridge.js"></script>
 
-  <script>
+  <script nonce="{{ request.state.csp_nonce }}">
     // Show user-visible message on HTMX server errors (5xx/4xx)
     document.addEventListener('htmx:responseError', function(ev) {
       var target = ev.detail.target;
@@ -61,7 +63,7 @@
     });
   </script>
 
-  <script>
+  <script nonce="{{ request.state.csp_nonce }}">
     // UI hygiene for HTMX result panes:
     // - Clear stale alerts/results when switching tabs.
     // - Clear results when the corresponding input becomes empty.
