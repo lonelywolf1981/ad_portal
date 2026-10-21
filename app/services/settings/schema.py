@@ -70,24 +70,27 @@ class ADSettings(BaseModel):
     @field_validator("dc_short")
     @classmethod
     def _validate_dc_short(cls, v: str) -> str:
+        """One DC or several separated by comma ("dc1,dc2"): first is primary, the rest are failover.
+
+        Each item is a short name or an IP address.
+        """
         s = (v or "").strip()
         if not s:
             return s
-        
-        # Проверяем, является ли значение IP-адресом
+
         import ipaddress
-        try:
-            ipaddress.ip_address(s)
-            # Если это IP-адрес, возвращаем его без дополнительной проверки
-            return s
-        except ValueError:
-            # Если не IP-адрес, применяем стандартные правила
-            if any(ch in s for ch in ".,;"):
-                raise ValueError("Имя DC (короткое) не должно содержать точек/запятых.")
-            if not re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9_-]{0,62}[A-Za-z0-9])?", s):
-                raise ValueError("Некорректное имя DC: используйте буквы/цифры/дефис/подчёркивание без пробелов.")
-        
-        return s
+        items = [x.strip() for x in s.replace(";", ",").replace(" ", ",").split(",") if x.strip()]
+        for item in items:
+            try:
+                ipaddress.ip_address(item)
+                continue
+            except ValueError:
+                pass
+            if "." in item:
+                raise ValueError("Имя DC (короткое) не должно содержать точек: укажите короткие имена через запятую, например dc1,dc2.")
+            if not re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9_-]{0,62}[A-Za-z0-9])?", item):
+                raise ValueError("Некорректное имя DC: используйте буквы/цифры/дефис/подчёркивание; несколько DC — через запятую.")
+        return ",".join(items)
 
     @field_validator("allowed_app_group_dns", "allowed_settings_group_dns")
     @classmethod
