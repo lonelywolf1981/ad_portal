@@ -227,8 +227,8 @@ def api_scan(request: Request):
     return out
 
 
-def _display_names() -> dict[str, str]:
-    """sAMAccountName (lower) -> displayName for all users, one paged LDAP search."""
+def _user_index() -> dict[str, dict]:
+    """sAMAccountName (lower) -> {name, department, ou} for all users, one paged LDAP search."""
     from ldap3 import SUBTREE
 
     cl = _client()
@@ -240,10 +240,13 @@ def _display_names() -> dict[str, str]:
     out = {}
     try:
         for e in conn.extend.standard.paged_search(cl.cfg.base_dn, "(&(objectCategory=person)(objectClass=user))", SUBTREE,
-                                                   attributes=["sAMAccountName", "displayName"], paged_size=1000, generator=True):
+                                                   attributes=["sAMAccountName", "displayName", "department"],
+                                                   paged_size=1000, generator=True):
             if e.get("type") == "searchResEntry":
                 a = e["attributes"]
-                out[str(a.get("sAMAccountName") or "").lower()] = str(a.get("displayName") or "")
+                ou = next((p[3:] for p in e["dn"].split(",") if p.upper().startswith("OU=")), "")
+                out[str(a.get("sAMAccountName") or "").lower()] = {
+                    "name": str(a.get("displayName") or ""), "department": str(_first(a.get("department")) or ""), "ou": ou}
     finally:
         conn.unbind()
     return out
@@ -268,16 +271,23 @@ def api_sessions(request: Request):
                           .order_by(HostUserMap.host, HostUserMap.user_login)).all()
         items = [(r.host, r.ip, r.user_login) for r in rows]
         running = bool(st.net_scan_lock_ts)
-    names = _display_names()
+    idx = _user_index()
     hosts: dict[str, dict] = {}
     for host, ip, login in items:
         h = hosts.setdefault(host, {"host": host, "ip": ip, "users": []})
-        h["users"].append({"login": login, "name": names.get(login.lower()) or None})
+        u = idx.get(login.lower()) or {}
+        h["users"].append({"login": login, "name": u.get("name") or None, "department": u.get("department") or None})
+    # Group by department of the (first) user; fallback: the user's OU, then "Без отдела"
+    groups: dict[str, list] = {}
+    for h in hosts.values():
+        u = idx.get(h["users"][0]["login"].lower()) or {}
+        groups.setdefault(u.get("department") or u.get("ou") or "Без отдела", []).append(h)
     age = int((datetime.utcnow() - end).total_seconds() // 60)
     audit_action(request, who, "api", "sessions", True, f"{len(hosts)} hosts")
     return {"ok": True, "scan_finished": _local(end), "age_min": age, "scan_running": running,
             "note": "по последнему скану сети (каждые 30 мин); для одного ПК прямо сейчас — host/{host}?live=1",
-            "hosts_count": len(hosts), "users_count": len(items), "hosts": list(hosts.values())}
+            "hosts_count": len(hosts), "users_count": len(items),
+            "groups": [{"group": g, "hosts": groups[g]} for g in sorted(groups, key=lambda x: (x == "Без отдела", x.lower()))]}
 
 
 @router.get("/pins/{login}")
