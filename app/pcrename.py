@@ -13,6 +13,7 @@ characters; servers, DCs and APP1 are never renamed. Jobs: Redis adp:pcrename:jo
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import logging
 import os
@@ -95,17 +96,22 @@ def _resolve(name: str) -> list[str]:
         return []
 
 
-def _reboot_time(s: str) -> datetime | None:
-    """'HH:MM' -> next such local time (today or tomorrow); 'now' -> in 5 minutes."""
+def _reboot_time(s: str) -> tuple[datetime | None, str]:
+    """'HH:MM' -> (time, note): later today, or tomorrow if it has already passed (noted); less than 7 min
+    from now -> error (the 5-minute warning would not fit); 'now' -> in 6 minutes."""
     s = (s or "").strip().lower()
     now = datetime.now()
     if s in ("now", "сейчас"):
-        return now + timedelta(minutes=5)
+        return now + timedelta(minutes=6), ""
     m = re.match(r"^(\d{1,2}):(\d{2})$", s)
     if not m or int(m.group(1)) > 23 or int(m.group(2)) > 59:
-        return None
+        return None, f"время перезагрузки «{s}»: нужно ЧЧ:ММ или now"
     t = now.replace(hour=int(m.group(1)), minute=int(m.group(2)), second=0, microsecond=0)
-    return t if t > now + timedelta(minutes=6) else t + timedelta(days=1)
+    if now <= t < now + timedelta(minutes=7):
+        return None, f"до {s} меньше 7 минут — предупреждение за 5 минут не успеет; укажите время позже или now"
+    if t < now:
+        return t + timedelta(days=1), f"⚠️ {s} сегодня уже прошло — перезагрузка ЗАВТРА {t + timedelta(days=1):%d.%m} в {s}"
+    return t, ""
 
 
 _PROBE = r"""
@@ -129,9 +135,11 @@ $o | ConvertTo-Json -Depth 4 -Compress
 def plan(old: str, new: str, reboot_at: str) -> dict:
     old, new = (old or "").strip().upper().split(".")[0], (new or "").strip().upper()
     errors, warnings, info = [], [], {}
-    when = _reboot_time(reboot_at)
+    when, note = _reboot_time(reboot_at)
     if not when:
-        errors.append(f"время перезагрузки «{reboot_at}»: нужно ЧЧ:ММ или now")
+        errors.append(note)
+    elif note:
+        warnings.append(note)
     if not NAME_RE.match(new) or len(new) > 15:
         errors.append(f"новое имя {new}: нужен шаблон ОТДЕЛ-цифры (буквы, дефис, 4–9 цифр; до 15 символов), например FIN-00051")
     if new == old:
@@ -236,8 +244,11 @@ $ErrorActionPreference = 'Stop'
 $d = 'C:\\ProgramData\\JSQ\\Rename'; New-Item -ItemType Directory -Force $d | Out-Null
 & icacls $d /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
 Remove-Item "$d\\result.json" -ErrorAction SilentlyContinue
-[IO.File]::WriteAllText("$d\\post-rename.ps1", [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{b64(_POST_RENAME)}')), [Text.Encoding]::ASCII)
-$a = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -ExecutionPolicy Bypass -File $d\\post-rename.ps1"
+# post-rename.ps1 was uploaded in parts as base64 (post-rename.b64): the whole script does not fit one command line
+[IO.File]::WriteAllText("$d\\post-rename.ps1", [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String((Get-Content "$d\\post-rename.b64" -Raw).Trim())), [Text.Encoding]::ASCII)
+Remove-Item "$d\\post-rename.b64"
+if ((Get-FileHash "$d\\post-rename.ps1" -Algorithm SHA256).Hash -ne '{hashlib.sha256(_POST_RENAME.encode("ascii")).hexdigest().upper()}') {{ throw 'post-rename.ps1: контрольная сумма не совпала' }}
+$a =New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -ExecutionPolicy Bypass -File $d\\post-rename.ps1"
 $s = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 40) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
 Register-ScheduledTask -TaskName 'JSQ post-rename' -Action $a -Trigger (New-ScheduledTaskTrigger -AtStartup) -Settings $s -User SYSTEM -RunLevel Highest -Force | Out-Null
 $cred = New-Object PSCredential('{user}', (ConvertTo-SecureString ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{b64(pw)}'))) -AsPlainText -Force))
@@ -256,7 +267,15 @@ def apply(old: str, new: str, reboot_at: str) -> dict:
     if not p["ok"]:
         return p
     when = datetime.strptime(p["reboot_at"], "%Y-%m-%d %H:%M")
-    out = _ps(f"{p['old']}.{DOMAIN}", _apply_script(p["new"], when), 120)
+    host = f"{p['old']}.{DOMAIN}"
+    # Upload the post-reboot script in parts: a WinRM command line (-EncodedCommand) is limited to 8191 characters
+    data = base64.b64encode(_POST_RENAME.encode("ascii")).decode()
+    _ps(host, "$d='C:\\ProgramData\\JSQ\\Rename'; New-Item -ItemType Directory -Force $d | Out-Null; "
+              "& icacls $d /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null; "
+              "Set-Content \"$d\\post-rename.b64\" -Value '' -NoNewline -Encoding ascii; 'ok'", 60)
+    for i in range(0, len(data), 2000):
+        _ps(host, f"Add-Content 'C:\\ProgramData\\JSQ\\Rename\\post-rename.b64' -Value '{data[i:i + 2000]}' -NoNewline -Encoding ascii; 'ok'", 60)
+    out = _ps(host, _apply_script(p["new"], when), 120)
     job = {"id": uuid.uuid4().hex[:10], "old": p["old"], "new": p["new"], "reboot_at": p["reboot_at"],
            "ip": p["info"].get("ip"), "created": datetime.now().strftime("%Y-%m-%d %H:%M"), "status": "scheduled",
            "result": None, "warnings": p["warnings"], "output": out.strip()[-300:]}
