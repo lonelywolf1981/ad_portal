@@ -9,7 +9,8 @@ nginx additionally lets /api/ through only from the agent's address. Every call 
   GET /api/v1/host/{host}           who was seen on the host (scan history); ?live=1 asks the host right now
   GET /api/v1/host/{host}/shares    SMB shares from the last scan
   GET /api/v1/scan                  last network scan: time and summary
-  GET /api/v1/pins/{login}          the user's PIN codes (AD otherPager = PaperCut card numbers)
+  GET /api/v1/sessions              who is on which computer now: all hosts from the last network scan, one call
+  GET /api/v1/pins/{login}        the user's PIN codes (AD otherPager = PaperCut card numbers)
   GET /api/v1/pins-missing          enabled users with empty otherPager
   GET /api/v1/pager-sync            last PaperCut -> AD PIN sync reports (no PIN values)
 
@@ -224,6 +225,59 @@ def api_scan(request: Request):
                "interval_min": st.net_scan_interval_min, "subnets": [c for c in (st.net_scan_cidrs or "").split() if c]}
     audit_action(request, who, "api", "scan", True, "")
     return out
+
+
+def _display_names() -> dict[str, str]:
+    """sAMAccountName (lower) -> displayName for all users, one paged LDAP search."""
+    from ldap3 import SUBTREE
+
+    cl = _client()
+    if not cl:
+        return {}
+    conn = cl._conn(cl.cfg.bind_principal, cl.cfg.bind_password)
+    if not conn.bind():
+        return {}
+    out = {}
+    try:
+        for e in conn.extend.standard.paged_search(cl.cfg.base_dn, "(&(objectCategory=person)(objectClass=user))", SUBTREE,
+                                                   attributes=["sAMAccountName", "displayName"], paged_size=1000, generator=True):
+            if e.get("type") == "searchResEntry":
+                a = e["attributes"]
+                out[str(a.get("sAMAccountName") or "").lower()] = str(a.get("displayName") or "")
+    finally:
+        conn.unbind()
+    return out
+
+
+@router.get("/sessions")
+def api_sessions(request: Request):
+    """Users seen on hosts by the last network scan (runs every 30 min; scan window = its duration)."""
+    import re
+
+    who = _auth(request)
+    if not who:
+        return _deny(request)
+    with db_session() as db:
+        st = get_or_create_settings(db)
+        end = st.net_scan_last_run_ts
+        if not end:
+            return JSONResponse({"ok": False, "error": "no network scan yet"}, status_code=503)
+        m = re.search(r"Длительность:\s*(\d+)\s*сек", st.net_scan_last_summary or "")
+        start = end - (timedelta(seconds=int(m.group(1)) + 60) if m else timedelta(minutes=10))
+        rows = db.scalars(select(HostUserMap).where(HostUserMap.last_seen_ts >= start)
+                          .order_by(HostUserMap.host, HostUserMap.user_login)).all()
+        items = [(r.host, r.ip, r.user_login) for r in rows]
+        running = bool(st.net_scan_lock_ts)
+    names = _display_names()
+    hosts: dict[str, dict] = {}
+    for host, ip, login in items:
+        h = hosts.setdefault(host, {"host": host, "ip": ip, "users": []})
+        h["users"].append({"login": login, "name": names.get(login.lower()) or None})
+    age = int((datetime.utcnow() - end).total_seconds() // 60)
+    audit_action(request, who, "api", "sessions", True, f"{len(hosts)} hosts")
+    return {"ok": True, "scan_finished": _local(end), "age_min": age, "scan_running": running,
+            "note": "по последнему скану сети (каждые 30 мин); для одного ПК прямо сейчас — host/{host}?live=1",
+            "hosts_count": len(hosts), "users_count": len(items), "hosts": list(hosts.values())}
 
 
 @router.get("/pins/{login}")
