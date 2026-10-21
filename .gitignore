@@ -13,3 +13,4 @@ CLAUDE.md
 .claude/
 
 "documentations/" 
+nginx/certs/

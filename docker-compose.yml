@@ -79,9 +79,10 @@ services:
     depends_on:
       - web
     ports:
-      - "8484:80"
+      - "8484:443"
     volumes:
       - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
     networks:
       - adnet
 
