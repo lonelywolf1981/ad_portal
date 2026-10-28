@@ -3,7 +3,7 @@
 TS1 (where PaperCut runs) reads the card numbers locally with server-command every hour and POSTs them here
 (/api/v1/pager-sync/papercut, own token). The portal compares them with AD and writes otherPager with its
 service account svc-adportal (it already has write rights on users). Rules (decided 21.10.2026):
-- enabled user objects (not computers) in the user OUs under OU=Domain Controllers only;
+- enabled user objects (not computers) in the user OUs under OU=Сотрудники only;
 - service / test accounts are excluded (PAGERSYNC_EXCLUDE + svc*, test*, *.adm);
 - AD is set to the PaperCut values when they differ (filled = was empty, updated = changed);
 - users without card numbers in PaperCut are reported, AD is left as is.
@@ -22,7 +22,7 @@ from ldap3 import MODIFY_REPLACE, SUBTREE
 log = logging.getLogger(__name__)
 
 REPORTS_KEY = "adp:pagersync:reports"
-_SEARCH_BASE = "OU=Domain Controllers,DC=ubc,DC=local,DC=net"
+_SEARCH_BASE = "OU=Сотрудники,DC=ubc,DC=local,DC=net"
 _DEFAULT_EXCLUDE = "exchange,test1,stanok,conference,test_ad,operator,user,user_14,a.baidenko.adm"
 _PIN_RE = re.compile(r"^\d{3,12}$")
 
