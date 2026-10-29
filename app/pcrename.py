@@ -124,10 +124,11 @@ $o.adapters = @(Get-NetAdapter -Physical -ErrorAction SilentlyContinue | Where-O
 $o.ssid = ((netsh wlan show interfaces 2>$null | Select-String '^\s+SSID\s+:' | Select-Object -First 1) -replace '^\s+SSID\s+:\s*', '')
 $o.wifi_cert = @(Get-ChildItem Cert:\LocalMachine\My | Where-Object { ($_.Extensions | Where-Object { $_.Oid.Value -eq '1.3.6.1.4.1.311.21.7' } | ForEach-Object { $_.Format(0) }) -match '__TPL__' } | ForEach-Object { @{ subject = $_.Subject; dns = ($_.DnsNameList.Unicode -join ','); expires = $_.NotAfter.ToString('yyyy-MM-dd') } })
 $o.pending_reboot = (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending') -or (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired') -or [bool](Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager' -Name PendingFileRenameOperations -ErrorAction SilentlyContinue)
-$o.secure_channel = $(try { Test-ComputerSecureChannel } catch { $false })
+# Test-ComputerSecureChannel randomly returns False inside a WinRM session - confirm with nltest (both lines "Status = 0 0x0")
+$o.secure_channel = $(try { if (Test-ComputerSecureChannel) { $true } else { @(nltest /sc_verify:__DOMAIN__ 2>&1 | Select-String 'Status = 0 0x0').Count -ge 2 } } catch { $false })
 $o.setup_running = [bool](Get-Process SetupHost -ErrorAction SilentlyContinue)
 $o | ConvertTo-Json -Depth 4 -Compress
-""".replace("__TPL__", re.escape(WIFI_TEMPLATE_OID))
+""".replace("__TPL__", re.escape(WIFI_TEMPLATE_OID)).replace("__DOMAIN__", DOMAIN)
 
 
 # ---------- plan ----------
