@@ -289,7 +289,7 @@ def apply(old: str, new: str, reboot_at: str) -> dict:
            "result": None, "warnings": p["warnings"], "output": out.strip()[-300:]}
     _save(job)
     from .tasks import pcrename_check
-    pcrename_check.apply_async(args=[job["id"]], eta=when + timedelta(minutes=8))
+    pcrename_check.apply_async(args=[job["id"]], eta=(when + timedelta(minutes=8)).astimezone())  # naive eta is taken as UTC by Celery
     return {**p, "applied": True, "job": job}
 
 
