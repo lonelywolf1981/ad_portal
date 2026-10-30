@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import asyncio
+import html
 import io
+import ipaddress
 import logging
+import time
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from openpyxl import Workbook
+from starlette.concurrency import run_in_threadpool
 
 from ..deps import require_session_or_hx_redirect, require_initialized_or_redirect
 from ..mappings import search_host_user_matches
@@ -105,6 +110,59 @@ def presence_search(request: Request, q: str = "", sort: str = "when", dir: str 
     return templates.TemplateResponse(
         "presence_results.html",
         {"request": request, "items": items, "q": q, "sort": sort, "dir": dir},
+    )
+
+
+# TightVNC: кнопка активна, если TCP 5900 на хосте отвечает. Ссылка tightvnc://IP открывается обработчиком
+# на ПК администратора (src/tightvnc-url-handler.ps1 в репозитории документации), пароля в портале нет.
+VNC_PORT = 5900
+VNC_TIMEOUT_S = 1.0
+VNC_CACHE_TTL_S = 60.0
+_vnc_cache: dict[str, tuple[float, bool]] = {}
+
+
+async def _vnc_port_open(ip: str) -> bool:
+    now = time.monotonic()
+    hit = _vnc_cache.get(ip)
+    if hit and now - hit[0] < VNC_CACHE_TTL_S:
+        return hit[1]
+    ok = False
+    try:
+        _r, w = await asyncio.wait_for(asyncio.open_connection(ip, VNC_PORT), timeout=VNC_TIMEOUT_S)
+        w.close()
+        ok = True
+    except Exception:
+        ok = False
+    if len(_vnc_cache) > 4096:
+        _vnc_cache.clear()
+    _vnc_cache[ip] = (now, ok)
+    return ok
+
+
+@router.get("/presence/vnc", response_class=HTMLResponse)
+async def presence_vnc(request: Request, ip: str = "", host: str = ""):
+    auth = await run_in_threadpool(require_initialized_or_redirect, request)
+    if not isinstance(auth, dict):
+        return auth
+
+    try:
+        addr = ipaddress.ip_address((ip or "").strip())
+    except ValueError:
+        return HTMLResponse("")
+    # только внутренние IPv4: портал не должен становиться сканером портов наружу
+    if addr.version != 4 or not addr.is_private:
+        return HTMLResponse("")
+
+    ip_s = str(addr)
+    name = html.escape(short_hostname(host) or ip_s)
+    if await _vnc_port_open(ip_s):
+        return HTMLResponse(
+            f'<a class="btn btn-outline-primary btn-sm py-0" href="tightvnc://{ip_s}/" '
+            f'title="Подключиться к {name} через TightVNC Viewer">VNC</a>'
+        )
+    return HTMLResponse(
+        '<button type="button" class="btn btn-outline-secondary btn-sm py-0" disabled '
+        f'title="{name}: порт {VNC_PORT} недоступен">VNC</button>'
     )
 
 

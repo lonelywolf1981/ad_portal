@@ -35,6 +35,7 @@
           <th style="min-width: 140px;">{{ sort_link('IP', 'ip') }}</th>
           <th style="min-width: 160px;">{{ sort_link('Логин', 'login') }}</th>
           <th style="min-width: 180px;">{{ sort_link('Когда обнаружено', 'when') }}</th>
+          <th style="min-width: 80px;"></th>
         </tr>
       </thead>
       <tbody>
@@ -64,6 +65,16 @@
               {% endif %}
             </td>
             <td class="text-secondary">{{ r.when if r.when else "—" }}</td>
+            <td>
+              {% if r.ip %}
+                {# кнопка VNC подгружается отдельно: портал проверяет TCP 5900 на хосте #}
+                <span
+                  hx-get="/presence/vnc?ip={{ r.ip|urlencode }}&host={{ r.host|urlencode }}"
+                  hx-trigger="load"
+                  hx-swap="outerHTML"
+                ><button type="button" class="btn btn-outline-secondary btn-sm py-0" disabled>VNC…</button></span>
+              {% endif %}
+            </td>
           </tr>
         {% endfor %}
       </tbody>
